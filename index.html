@@ -64,10 +64,10 @@
         <div class="card-title row">
           <span>Saved</span>
           <span class="grow"></span>
-          <button class="ghost small" id="btn-save-preset">＋ Save current</button>
+          <button class="ghost small" id="btn-save-preset">＋ Save</button>
         </div>
         <div class="chips" id="saved-chips"></div>
-        <p class="meta" id="saved-empty">Nothing saved yet. Set up a prompt, mode, LoRAs and options, then tap “Save current”.</p>
+        <p class="meta" id="saved-empty">Nothing saved yet. Set up a prompt, mode, LoRAs and options, then tap “＋ Save”.</p>
         <div class="row" id="saved-name-row" hidden>
           <input type="text" id="saved-name" placeholder="Name this preset" maxlength="40" />
           <button class="primary small" id="btn-save-confirm">Save</button>
@@ -76,7 +76,8 @@
         <div class="row" id="saved-actions" hidden>
           <span class="meta" id="saved-current"></span>
           <span class="grow"></span>
-          <button class="ghost small" id="btn-update-preset">Update</button>
+          <button class="ghost small" id="btn-revert-preset" hidden>Revert</button>
+          <button class="ghost small" id="btn-update-preset" hidden>Update</button>
           <button class="ghost small danger" id="btn-delete-preset">Delete</button>
         </div>
       </div>
@@ -144,7 +145,8 @@
         <img id="result-img" alt="Generated image" />
         <div class="row gap">
           <button class="primary grow" id="btn-save">Save to Photos</button>
-          <button class="ghost" id="btn-again">Again ↻</button>
+          <button class="ghost" id="btn-again" title="Generate again with a new seed">Again ↻</button>
+          <button class="ghost" id="btn-clear" title="Hide this image (it stays in history)">✕</button>
         </div>
         <p class="meta" id="result-hint"></p>
       </div>

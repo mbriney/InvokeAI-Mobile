@@ -147,19 +147,37 @@
     state.mode = (!m || m.base !== 'flux2') ? 'restyle' : (p.mode || 'edit'); LS.set('mode', state.mode);
     renderMode(); renderLoras(); updateGenerate();
   }
+  // Does what's on screen still match the loaded preset?
+  const norm = (p) => JSON.stringify({ prompt: (p.prompt || '').trim(), negative: (p.negative || '').trim(), mode: p.mode, strength: +p.strength, steps: +p.steps, cfg: +p.cfg, modelKey: p.modelKey || null, loras: Object.fromEntries(Object.entries(p.loras || {}).sort()) });
+  function savedIsEdited() {
+    const cur = savedList().find((p) => p.id === currentSavedId);
+    return cur ? norm(cur) !== norm(snapshot()) : false;
+  }
   function renderSaved() {
     const list = savedList(); const wrap = $('saved-chips'); wrap.innerHTML = '';
     $('saved-empty').hidden = list.length > 0;
+    const edited = savedIsEdited();
     for (const p of list) {
-      const b = document.createElement('button'); b.className = 'chip' + (p.id === currentSavedId ? ' active' : '');
+      const isCur = p.id === currentSavedId;
+      const b = document.createElement('button'); b.className = 'chip' + (isCur ? (edited ? ' edited' : ' active') : '');
       b.textContent = p.name; b.title = p.prompt;
+      if (isCur) { const st = document.createElement('span'); st.className = 'state'; st.textContent = edited ? '● edited' : '✓ loaded'; b.appendChild(st); }
       b.addEventListener('click', () => { currentSavedId = p.id; applySaved(p); renderSaved(); });
       wrap.appendChild(b);
     }
     const cur = list.find((p) => p.id === currentSavedId);
     $('saved-actions').hidden = !cur;
-    if (cur) $('saved-current').textContent = `“${cur.name}” loaded`;
+    $('btn-update-preset').hidden = !edited; $('btn-revert-preset').hidden = !edited;
+    $('btn-save-preset').textContent = cur && edited ? '＋ Save as new' : '＋ Save';
+    if (cur) $('saved-current').textContent = edited ? `“${cur.name}” — you've changed it` : `“${cur.name}” loaded`;
   }
+  // Re-check the loaded/edited state whenever any setting changes.
+  for (const id of ['prompt', 'negative', 'strength', 'steps', 'cfg', 'model', 'seed']) $(id).addEventListener('input', () => renderSaved());
+  $('model').addEventListener('change', () => renderSaved());
+  $('mode').addEventListener('click', () => renderSaved());
+  $('btn-revert-preset').addEventListener('click', () => {
+    const p = savedList().find((x) => x.id === currentSavedId); if (p) { applySaved(p); renderSaved(); }
+  });
   $('btn-save-preset').addEventListener('click', () => {
     $('saved-name-row').hidden = false; $('saved-name').value = ''; $('saved-name').focus();
   });
@@ -173,13 +191,12 @@
   $('saved-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-save-confirm').click(); });
   $('btn-update-preset').addEventListener('click', () => {
     const list = savedList(); const i = list.findIndex((p) => p.id === currentSavedId); if (i < 0) return;
-    list[i] = Object.assign({}, list[i], snapshot()); savedWrite(list); toast(`Updated “${list[i].name}”`);
+    list[i] = Object.assign({}, list[i], snapshot()); savedWrite(list); renderSaved(); toast(`Updated “${list[i].name}”`);
   });
   $('btn-delete-preset').addEventListener('click', () => {
     const list = savedList(); const p = list.find((x) => x.id === currentSavedId); if (!p) return;
     savedWrite(list.filter((x) => x.id !== currentSavedId)); currentSavedId = null; renderSaved(); toast(`Deleted “${p.name}”`);
   });
-  // Any manual change means the loaded preset is no longer exactly what's on screen — keep it highlighted, but that's what Update is for.
 
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
@@ -246,9 +263,9 @@
       const range = row.querySelector('input'); const val = row.querySelector('b');
       row.querySelector('.lora-toggle').addEventListener('click', () => {
         if (l.key in state.activeLoras) delete state.activeLoras[l.key]; else state.activeLoras[l.key] = Number(range.value) || 0.75;
-        LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras();
+        LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); renderSaved();
       });
-      range.addEventListener('input', () => { state.activeLoras[l.key] = Number(range.value); val.textContent = Number(range.value).toFixed(2); LS.set('active_loras', JSON.stringify(state.activeLoras)); });
+      range.addEventListener('input', () => { state.activeLoras[l.key] = Number(range.value); val.textContent = Number(range.value).toFixed(2); LS.set('active_loras', JSON.stringify(state.activeLoras)); renderSaved(); });
       wrap.appendChild(row);
     }
   }
@@ -306,6 +323,13 @@
   // ---------- Generate ----------
   $('btn-generate').addEventListener('click', generate);
   $('btn-again').addEventListener('click', () => { $('seed').value = ''; generate(); });
+  $('btn-clear').addEventListener('click', () => {
+    // Just hides the result; the image stays on the server and in 🕘. Photo, prompt and settings are untouched.
+    if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
+    $('result-img').removeAttribute('src'); $('result').hidden = true;
+    state.resultBlob = null; state.resultName = ''; $('app-error').textContent = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   $('btn-cancel').addEventListener('click', async () => {
     if (!state.job) return;
     state.job.cancelled = true;

@@ -59,7 +59,7 @@ python3 -m http.server 8080   # then open http://localhost:8080
 
 ## Saved presets
 
-**＋ Save current** stores the prompt, mode, negative prompt, strength/steps/CFG, model and active LoRAs (with weights) under a name. Tap a chip to load it; **Update** overwrites it with what's on screen; **Delete** removes it. Presets live in the browser's `localStorage` on that device only — nothing is written to the server or the repo, and they don't sync between phones.
+**＋ Save** stores the prompt, mode, negative prompt, strength/steps/CFG, model and active LoRAs (with weights) under a name. Tap a chip to load it (chip shows **✓ loaded**). Change anything and the chip switches to **● edited** with three choices: **Update** (overwrite the preset with what's on screen), **Revert** (reload the preset), or **＋ Save as new**. **Delete** removes it. Presets live in the browser's `localStorage` on that device only — nothing is written to the server or the repo, and they don't sync between phones.
 
 ## LoRAs
 

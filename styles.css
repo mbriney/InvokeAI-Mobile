@@ -13,11 +13,11 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif; }
 body { min-height: 100vh; overscroll-behavior-y: none; }
 
 .screen { min-height: 100vh; display: flex; flex-direction: column; }
-.screen[hidden] { display: none; }
 
 .center { margin: auto; padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px); text-align: center; width: 100%; max-width: 420px; }
 .center.narrow { max-width: 360px; }

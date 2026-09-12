@@ -12,7 +12,8 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
    - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
    - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
 3. **Paste** works too: ⌘V anywhere on the page, or the 📋 buttons on iPhone (Safari asks once to allow paste). With a FLUX.2 model in Edit mode an **Outfit reference** slot appears — add a photo of someone wearing an outfit (choose or paste) and the person in your photo is shown wearing it. Both photos go to Klein as reference images (yours first) — verified to keep face, pose and background and swap the garments; a ready-made instruction is filled in (tap *Write the outfit prompt for me* to reset it), and ✨ Improve with Grok sees both images and describes the actual garments.
-4. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
+4. The result (and the full-screen viewer) supports **pinch to zoom, drag to pan, double-tap to reset**; mouse wheel zooms on desktop.
+5. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
 
 Add it to your Home Screen (Share → *Add to Home Screen*) and it runs full-screen like an app.
 
@@ -70,7 +71,7 @@ The key lives only in that browser's `localStorage` and is sent only to `api.x.a
 
 ## LoRAs
 
-Every LoRA installed on the server whose base matches the selected model is listed under **LoRAs** with an on/off toggle and a weight slider (−1 … 2, default 0.75). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
+Every LoRA installed on the server that fits the selected model is listed under **LoRAs** — same base, and for FLUX.2 the same variant (a Klein 9B or Dev LoRA is hidden when Klein 4B is selected, because it fails inside the denoiser with a tensor-shape error; a LoRA with no recorded variant is shown with a warning) with an on/off toggle and a weight slider (−1 … 2, default 0.75). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
 
 Note for FLUX.2 Klein: Invoke can only patch LoRAs onto FP8 / NF4 / 8-bit builds — a GGUF k-quant main model silently ignores them (the same reason the Concepts picker greys out in the Invoke UI).
 

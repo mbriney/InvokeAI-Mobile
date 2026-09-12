@@ -36,6 +36,7 @@
     <header class="topbar">
       <span class="brand" id="app-title">Imagine</span>
       <span class="grow"></span>
+      <button class="icon-btn" id="btn-reset" title="Reset everything">↺</button>
       <button class="icon-btn" id="btn-gallery" title="Recent">🕘</button>
       <button class="icon-btn" id="btn-settings" title="Settings">⚙</button>
       <button class="icon-btn" id="btn-signout" title="Sign out">⎋</button>
@@ -174,7 +175,8 @@
 
       <!-- Result -->
       <div class="card" id="result" hidden>
-        <img id="result-img" alt="Generated image" />
+        <div class="zoombox" id="result-zoom"><img id="result-img" alt="Generated image" /></div>
+        <p class="meta center-text">Pinch to zoom · drag to pan · double-tap to reset</p>
         <div class="row gap">
           <button class="primary grow" id="btn-save">Save to Photos</button>
           <button class="ghost" id="btn-again" title="Generate again with a new seed">Again ↻</button>
@@ -239,7 +241,7 @@
       <span class="grow"></span>
       <span class="meta" id="viewer-status"></span>
     </div>
-    <img id="viewer-img" alt="" />
+    <div class="zoombox viewer-zoom" id="viewer-zoom"><img id="viewer-img" alt="" /></div>
     <div class="viewer-bottom">
       <button class="primary grow" id="btn-viewer-save" disabled>Save to Photos</button>
       <button class="ghost danger" id="btn-viewer-delete">Delete</button>

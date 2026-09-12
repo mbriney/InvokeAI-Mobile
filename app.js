@@ -313,6 +313,28 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     finally { $('btn-improve').disabled = false; }
   }
 
+  // ---------- Reset ----------
+  // Clears the working state: photos, prompt, mode, LoRAs, advanced fields, result and suggestion.
+  // Leaves alone: sign-in, xAI settings, saved presets, the running queue, and the selected model.
+  $('btn-reset').addEventListener('click', () => {
+    state.file = null; $('file-input').value = '';
+    const pv = $('preview'); if (pv.src.startsWith('blob:')) URL.revokeObjectURL(pv.src); pv.removeAttribute('src'); pv.hidden = true;
+    $('drop').classList.remove('has-image'); $('btn-change-photo').hidden = true; $('photo-meta').textContent = '';
+    setOutfit(null);
+    $('prompt').value = ''; LS.del('last_prompt');
+    $('negative').value = ''; $('seed').value = '';
+    $('strength').value = 0.65; $('strength-val').textContent = '0.65';
+    $('steps').value = 30; $('cfg').value = 7; applyModelDefaults();
+    state.activeLoras = {}; LS.del('active_loras'); renderLoras();
+    if (!$('mode').hidden) { state.mode = 'edit'; LS.set('mode', 'edit'); renderMode(); }
+    currentSavedId = null; renderSaved();
+    $('suggest').hidden = true; $('improve-status').textContent = ''; $('app-error').textContent = '';
+    if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
+    $('result-img').removeAttribute('src'); $('result').hidden = true; state.resultBlob = null; state.resultName = '';
+    $('advanced').hidden = true;
+    updateGenerate(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('Reset');
+  });
+
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
   $('strength').addEventListener('input', () => ($('strength-val').textContent = $('strength').value));
@@ -615,6 +637,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
 
   function showResult(blob, imageName) {
     if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
+    resultZoom.reset();
     state.resultBlob = blob; state.resultName = imageName;
     $('result-img').src = URL.createObjectURL(blob); $('result').hidden = false;
     $('result-hint').textContent = navigator.canShare ? '' : 'Tip: press and hold the image, then choose “Add to Photos”.';
@@ -782,6 +805,56 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     return { graph, outputId: N.dec };
   }
 
+  // ---------- Pinch-zoom / pan ----------
+  // Pointer-events based so it works with touch (pinch), trackpad/mouse (wheel + drag). Double-tap resets.
+  function attachZoom(box, img) {
+    let scale = 1, tx = 0, ty = 0; const pts = new Map(); let start = null; let lastTap = 0;
+    const MAX = 6;
+    const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; box.classList.toggle('zoomed', scale > 1.01); };
+    const clamp = () => {
+      const w = box.clientWidth, h = box.clientHeight;
+      if (scale <= 1) { scale = 1; tx = 0; ty = 0; return; }
+      tx = Math.min(0, Math.max(w - w * scale, tx)); ty = Math.min(0, Math.max(h - h * scale, ty));
+    };
+    const reset = () => { scale = 1; tx = 0; ty = 0; apply(); };
+    const zoomAt = (cx, cy, factor) => {
+      const ns = Math.min(MAX, Math.max(1, scale * factor)); const f = ns / scale;
+      tx = cx - (cx - tx) * f; ty = cy - (cy - ty) * f; scale = ns; clamp(); apply();
+    };
+    box.addEventListener('pointerdown', (e) => {
+      box.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const now = Date.now();
+      if (pts.size === 1 && now - lastTap < 300) { const r = box.getBoundingClientRect(); scale > 1.01 ? reset() : zoomAt(e.clientX - r.left, e.clientY - r.top, 2.5); lastTap = 0; return; }
+      lastTap = now;
+      const p = [...pts.values()];
+      start = { scale, tx, ty, p0: p[0], p1: p[1] || null, dist: p[1] ? Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) : 0,
+        mid: p[1] ? { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 } : p[0] };
+    });
+    box.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !start) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const p = [...pts.values()]; const r = box.getBoundingClientRect();
+      if (p.length >= 2 && start.p1) {
+        const dist = Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y);
+        const mid = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+        const ns = Math.min(MAX, Math.max(1, start.scale * (dist / (start.dist || 1)))); const f = ns / start.scale;
+        const cx = start.mid.x - r.left, cy = start.mid.y - r.top;
+        tx = cx - (cx - start.tx) * f + (mid.x - start.mid.x); ty = cy - (cy - start.ty) * f + (mid.y - start.mid.y); scale = ns;
+      } else if (scale > 1) {
+        tx = start.tx + (p[0].x - start.p0.x); ty = start.ty + (p[0].y - start.p0.y);
+      } else return;
+      clamp(); apply();
+    });
+    const up = (e) => { pts.delete(e.pointerId); if (pts.size === 0) start = null; else { const p = [...pts.values()]; start = { scale, tx, ty, p0: p[0], p1: null, dist: 0, mid: p[0] }; } };
+    box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up); box.addEventListener('pointerleave', up);
+    box.addEventListener('wheel', (e) => { e.preventDefault(); const r = box.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.002)); }, { passive: false });
+    box.addEventListener('dblclick', (e) => { e.preventDefault(); });
+    img.addEventListener('load', reset);
+    return { reset };
+  }
+  const resultZoom = attachZoom($('result-zoom'), $('result-img'));
+  const viewerZoom = attachZoom($('viewer-zoom'), $('viewer-img'));
+
   // ---------- Save ----------
   $('btn-save').addEventListener('click', saveResult);
   async function saveResult() { if (state.resultBlob) shareBlob(state.resultBlob, state.resultName); }
@@ -869,7 +942,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
   // ---------- Full-screen viewer ----------
   const viewer = { name: null, blob: null };
   function openViewer(name, thumbUrl) {
-    viewer.name = name; viewer.blob = null;
+    viewer.name = name; viewer.blob = null; viewerZoom.reset();
     const v = $('viewer'); const img = $('viewer-img');
     img.src = thumbUrl || ''; v.hidden = false; document.body.style.overflow = 'hidden';
     $('viewer-status').textContent = 'Loading full size…'; $('btn-viewer-save').disabled = true; viewerArm(false);
@@ -881,7 +954,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
   function closeViewer() { $('viewer').hidden = true; document.body.style.overflow = ''; viewer.name = null; viewer.blob = null; }
   function viewerArm(on) { $('btn-viewer-delete').hidden = on; $('btn-viewer-confirm').hidden = !on; $('btn-viewer-keep').hidden = !on; }
   $('btn-viewer-close').addEventListener('click', closeViewer);
-  $('viewer').addEventListener('click', (e) => { if (e.target === $('viewer') || e.target === $('viewer-img')) closeViewer(); });
+  $('viewer').addEventListener('click', (e) => { if (e.target === $('viewer')) closeViewer(); });
   $('btn-viewer-save').addEventListener('click', () => { if (viewer.blob) shareBlob(viewer.blob, viewer.name); });
   $('btn-viewer-delete').addEventListener('click', () => viewerArm(true));
   $('btn-viewer-keep').addEventListener('click', () => viewerArm(false));

@@ -848,6 +848,11 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     const up = (e) => { pts.delete(e.pointerId); if (pts.size === 0) start = null; else { const p = [...pts.values()]; start = { scale, tx, ty, p0: p[0], p1: null, dist: 0, mid: p[0] }; } };
     box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up); box.addEventListener('pointerleave', up);
     box.addEventListener('wheel', (e) => { e.preventDefault(); const r = box.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.002)); }, { passive: false });
+    // iOS Safari ignores user-scalable=no and will hijack a pinch for page zoom (cancelling our pointer events)
+    // unless the native gesture/touch handling is explicitly prevented on the element.
+    for (const t of ['gesturestart', 'gesturechange', 'gestureend']) box.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+    box.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || scale > 1) e.preventDefault(); }, { passive: false });
+    box.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
     box.addEventListener('dblclick', (e) => { e.preventDefault(); });
     img.addEventListener('load', reset);
     return { reset };

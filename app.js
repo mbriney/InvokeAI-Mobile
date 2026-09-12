@@ -362,8 +362,19 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     'flux': ['flux_lora_collection_loader', ['transformer', 'clip', 't5_encoder']],
     'flux2': null, // decided per model: klein vs dev
   };
+  // A LoRA fits if its base matches and, for FLUX.2, its variant family matches too (a Klein 9B or Dev LoRA on Klein 4B
+  // fails inside the denoiser with a tensor-shape error). LoRAs with no recorded variant are shown but flagged.
+  const variantFamily = (v) => (v || '').replace(/_base$/, '');
+  function loraFit(l, m) {
+    if (!(l.base === m.base || l.base === 'any')) return 'no';
+    if (m.base === 'flux2' && m.variant) {
+      if (!l.variant) return 'unknown';
+      return variantFamily(l.variant) === variantFamily(m.variant) ? 'yes' : 'no';
+    }
+    return 'yes';
+  }
   function lorasForModel(m) {
-    return state.loras.filter((l) => l.base === m.base || l.base === 'any');
+    return state.loras.filter((l) => loraFit(l, m) !== 'no');
   }
   function renderLoras() {
     const m = currentModel(); const card = $('lora-card'); const wrap = $('loras');
@@ -373,7 +384,8 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     for (const l of list) {
       const on = l.key in state.activeLoras;
       const row = document.createElement('div'); row.className = 'lora' + (on ? ' on' : '');
-      row.innerHTML = `<button class="lora-toggle"><span class="dot"></span><span class="name">${l.name}</span></button>
+      const warn = loraFit(l, m) === 'unknown' ? ` <small class="meta">· variant unknown — may not fit ${m.variant || m.base}</small>` : '';
+      row.innerHTML = `<button class="lora-toggle"><span class="dot"></span><span class="name">${l.name}${warn}</span></button>
         <div class="lora-w" ${on ? '' : 'hidden'}><input type="range" min="-1" max="2" step="0.05" value="${state.activeLoras[l.key] ?? 0.75}" /><b>${(state.activeLoras[l.key] ?? 0.75).toFixed(2)}</b></div>`;
       const range = row.querySelector('input'); const val = row.querySelector('b');
       row.querySelector('.lora-toggle').addEventListener('click', () => {
@@ -522,7 +534,8 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     const file = state.file;
     const outfit = (model.base === 'flux2' && state.mode === 'edit') ? state.outfit : null;
 
-    const job = { id: uid('j'), itemId: null, prompt, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false };
+    const job = { id: uid('j'), itemId: null, prompt, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false,
+      loras: lorasForModel(model).filter((l) => l.key in state.activeLoras).map((l) => l.name) };
     state.jobs.push(job); $('app-error').textContent = ''; renderQueue();
 
     try {
@@ -538,7 +551,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       }
       const args = { model, imageName: up.image_name, width, height, prompt, negative, strength, steps, cfg, seed, refImage };
       const g = model.base === 'flux2' ? flux2Graph(args) : model.base === 'flux' ? fluxGraph(args) : sdGraph(args);
-      job.outputId = g.outputId; job.detail = `${model.name} · ${steps} steps · ${width}×${height}${refImage ? ' · outfit ref' : ''}`;
+      job.outputId = g.outputId; job.detail = `${model.name} · ${steps} steps · ${width}×${height}${refImage ? ' · outfit ref' : ''}${job.loras.length ? ' · LoRA: ' + job.loras.join(', ') : ''}`;
       const enq = await api('/api/v1/queue/default/enqueue_batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch: { graph: g.graph, runs: 1, origin: 'imagine-mobile' } }),
@@ -570,7 +583,11 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
           try { item = await api(`/api/v1/queue/default/i/${job.itemId}`); } catch (e) { job.status = 'failed'; job.error = e.message; continue; }
           if (item.status === 'pending' || item.status === 'in_progress') { job.status = item.status; continue; }
           if (item.status === 'canceled') { job.status = 'canceled'; continue; }
-          if (item.status === 'failed') { job.status = 'failed'; job.error = item.error_message || item.error || 'Generation failed on the server.'; continue; }
+          if (item.status === 'failed') {
+            job.status = 'failed'; job.error = item.error_message || item.error || 'Generation failed on the server.';
+            if (/shape '\[\d+, \d+\]' is invalid/.test(job.error)) job.error = `A LoRA that was on doesn't fit ${job.model} (tensor shape mismatch — it was trained for a different model size). Turn it off and try again. Server said: ${job.error}`;
+            continue;
+          }
           // completed → find the output image, download it, show it
           // Execution node ids are UUIDs; session.source_prepared_mapping maps our node id → prepared id(s).
           // (Never fall back to "any image in the results" — the resize nodes emit images too.)

@@ -7,12 +7,11 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
 
 ## How it works
 
-1. **Optional 4-digit code** (set `APP_PIN`) locks the app on the phone. It's a convenience lock, not real security — the real gate is step 2.
-2. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
-3. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. The prompt is remembered between sessions. Two modes:
+1. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
+2. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. The prompt is remembered between sessions. Two modes:
    - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
    - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
-4. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
+3. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
 
 Add it to your Home Screen (Share → *Add to Home Screen*) and it runs full-screen like an app.
 
@@ -30,12 +29,11 @@ Restart Invoke afterwards. (If you later put the app on a custom domain, add tha
 
 ## Configuration
 
-All settings come from environment variables. Locally they live in `.env`; on GitHub they live in **Settings → Secrets and variables → Actions** and the workflow bakes them into `config.js` at deploy time.
+All settings come from environment variables. Locally they live in `.env`; on GitHub they live in **Settings → Secrets and variables → Actions → Variables** and the workflow bakes them into `config.js` at deploy time. Access control is Invoke's own login.
 
 | Variable | Where in GitHub | Required | Notes |
 |---|---|---|---|
 | `INVOKE_URL` | Variable | yes | e.g. `https://imagine.briney.me` |
-| `APP_PIN` | **Secret** | no | 4 digits. Empty = no lock screen |
 | `APP_TITLE` | Variable | no | Name shown in the app / home screen |
 | `DEFAULT_MODEL` | Variable | no | Model name (or part of it) to pre-select |
 | `MAX_SIZE` | Variable | no | Longest edge sent to the model (default 1024) |
@@ -44,7 +42,7 @@ All settings come from environment variables. Locally they live in `.env`; on Gi
 
 1. Push this repo to GitHub (branch `main`).
 2. **Settings → Pages → Source: GitHub Actions.**
-3. **Settings → Secrets and variables → Actions:** add the variables/secret above (at minimum `INVOKE_URL`).
+3. **Settings → Secrets and variables → Actions:** add the variables above (at minimum `INVOKE_URL`).
 4. Push (or run the *Deploy to GitHub Pages* workflow manually). The site appears at `https://<user>.github.io/InvokeAI-Mobile/`.
 
 Changing a variable in GitHub doesn't redeploy by itself — re-run the workflow from the Actions tab.
@@ -52,7 +50,7 @@ Changing a variable in GitHub doesn't redeploy by itself — re-run the workflow
 ## Run locally
 
 ```bash
-cp .env.example .env      # edit INVOKE_URL / APP_PIN
+cp .env.example .env      # edit INVOKE_URL
 node scripts/build-config.mjs
 python3 -m http.server 8080   # then open http://localhost:8080
 ```

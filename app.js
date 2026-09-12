@@ -1,5 +1,5 @@
 /* Imagine — a tiny iPhone-friendly front end for a hosted InvokeAI instance.
- * Flow: PIN (optional) → Invoke sign-in (JWT, remembered) → pick photo → type an instruction (+ optional LoRAs) → generate → save.
+ * Flow: Invoke sign-in (JWT, remembered) → pick photo → type an instruction (+ optional LoRAs) → generate → save.
  */
 (() => {
   'use strict';
@@ -7,7 +7,6 @@
   const CFG = Object.assign({
     baseUrl: '',
     appTitle: 'Imagine',
-    pinHash: '',            // sha256 hex of the 4-digit code, '' = no PIN
     defaultModel: '',       // model name (or substring) to pre-select
     maxSize: 1024,          // longest edge sent to the model
     pollMs: 1500,
@@ -19,10 +18,6 @@
     get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
     del: (k) => { try { localStorage.removeItem(k); } catch {} },
-  };
-  const SS = {
-    get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } },
-    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} },
   };
 
   const state = {
@@ -48,10 +43,6 @@
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), ms);
   };
-  const sha256 = async (s) => {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 8)}`;
   const round = (n, m) => Math.max(m, Math.round(n / m) * m);
@@ -74,30 +65,6 @@
     return ct.includes('application/json') ? res.json() : res;
   }
   const apiBlob = async (path) => (await api(path)).blob();
-
-  // ---------- PIN gate ----------
-  let pinBuf = '';
-  function renderPin() {
-    $('pin-dots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i < pinBuf.length));
-  }
-  async function pinPress(k) {
-    if (k === 'del') { pinBuf = pinBuf.slice(0, -1); renderPin(); return; }
-    if (pinBuf.length >= 4) return;
-    pinBuf += k; renderPin();
-    if (pinBuf.length === 4) {
-      const ok = (await sha256(pinBuf)) === CFG.pinHash;
-      if (ok) { SS.set('pin_ok', '1'); pinBuf = ''; renderPin(); afterPin(); }
-      else {
-        $('pin-dots').classList.add('shake'); $('pin-error').textContent = 'Wrong code';
-        setTimeout(() => { $('pin-dots').classList.remove('shake'); pinBuf = ''; renderPin(); $('pin-error').textContent = ''; }, 500);
-      }
-    }
-  }
-  $('keypad').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) pinPress(b.dataset.k); });
-  document.addEventListener('keydown', (e) => {
-    if ($('screen-pin').hidden) return;
-    if (/^[0-9]$/.test(e.key)) pinPress(e.key); else if (e.key === 'Backspace') pinPress('del');
-  });
 
   // ---------- Login ----------
   $('login-form').addEventListener('submit', async (e) => {
@@ -125,10 +92,6 @@
     document.title = CFG.appTitle; $('app-title').textContent = CFG.appTitle;
     $('login-host').textContent = CFG.baseUrl.replace(/^https?:\/\//, '');
     if (!CFG.baseUrl) { show('screen-login'); $('login-error').textContent = 'config.js is missing INVOKE_URL. See README.'; return; }
-    if (CFG.pinHash && SS.get('pin_ok') !== '1') { show('screen-pin'); return; }
-    afterPin();
-  }
-  async function afterPin() {
     if (!state.token) { show('screen-login'); return; }
     await enterApp();
   }

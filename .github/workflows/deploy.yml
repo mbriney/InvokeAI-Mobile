@@ -31,7 +31,6 @@ jobs:
           APP_TITLE: ${{ vars.APP_TITLE }}
           DEFAULT_MODEL: ${{ vars.DEFAULT_MODEL }}
           MAX_SIZE: ${{ vars.MAX_SIZE }}
-          APP_PIN: ${{ secrets.APP_PIN }}
         run: node scripts/build-config.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

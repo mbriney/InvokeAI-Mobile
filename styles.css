@@ -53,6 +53,10 @@ button { font: inherit; cursor: pointer; }
 .drop-empty .big { font-size: 40px; }
 .drop.has-image { border-style: solid; border-color: transparent; }
 .drop.has-image .drop-empty { display: none; }
+.drop-sm { width: 120px; height: 120px; min-height: 0; flex: none; }
+.drop-sm img { width: 100%; height: 100%; object-fit: cover; max-height: none; }
+.drop-sm .drop-empty .big { font-size: 28px; }
+.col { display: flex; flex-direction: column; gap: 8px; }
 
 .seg { display: flex; background: var(--card-2); border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; background: transparent; border: none; color: var(--muted); border-radius: 9px; padding: 10px; font-size: 15px; font-weight: 600; }

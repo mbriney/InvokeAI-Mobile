@@ -23,6 +23,7 @@
   const state = {
     token: LS.get('invoke_token') || '',
     file: null,
+    outfit: null,         // optional second reference photo (File)
     models: [],
     loras: [],            // all LoRAs on the server
     activeLoras: {},      // key -> weight
@@ -222,7 +223,10 @@
       const ids = ((await res.json()).data || []).map((m) => m.id).filter((id) => /grok/i.test(id) && !/image|imagine|video|tts|stt|embed/i.test(id)).sort();
       sel.innerHTML = '';
       for (const id of ids) { const o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o); }
-      const pref = ids.find((i) => i === xai.model) || ids.find((i) => /grok-4-fast/.test(i) && !/reasoning/.test(i)) || ids.find((i) => /grok-4/.test(i)) || ids[0] || '';
+      // Prefer the newest "fast non-reasoning" model (quick + vision), then any fast, then any grok-4.
+      const ver = (id) => { const m = id.match(/grok-(\d+)(?:[.-](\d+))?/); return m ? Number(m[1]) + Number(m[2] || 0) / 100 : 0; };
+      const best = (re) => ids.filter((i) => re.test(i)).sort((a, b) => ver(b) - ver(a))[0];
+      const pref = ids.find((i) => i === xai.model) || best(/fast-non-reasoning/) || best(/fast/) || best(/grok-4/) || ids[0] || '';
       sel.value = pref; $('xai-status').textContent = ids.length ? `${ids.length} models available` : 'No chat models found for this key.';
     } catch (e) { sel.innerHTML = '<option value="">— could not load —</option>'; $('xai-status').textContent = e.message; }
   }
@@ -249,9 +253,9 @@
     $('suggest').hidden = true; updateGenerate(); renderSaved(); toast('Prompt updated');
   });
 
-  async function photoDataUrl(maxEdge = 768) {
-    if (!state.file) return null;
-    const bmp = await createImageBitmap(state.file);
+  async function photoDataUrl(file, maxEdge = 768) {
+    if (!file) return null;
+    const bmp = await createImageBitmap(file);
     const s = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
     const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * s); cv.height = Math.round(bmp.height * s);
     cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
@@ -278,12 +282,15 @@ MODEL: ${m.name} — ${family}.
 ${guide}
 LoRAs on the server for this model (ENABLED ones are active in this generation; include their trigger words naturally in the prompt if they are relevant; you may recommend enabling an available one only if it clearly fits the idea):
 ${loraContext(m)}
-${xai.vision && state.file ? 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.' : ''}
+${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached: IMAGE 1 is the person to keep; IMAGE 2 shows an outfit on someone else. The model receives them in that order as "first image" and "second image". The goal is the person from image 1 wearing the outfit from image 2 — describe the garments you actually see in image 2 (type, color, fabric, fit, details) so the result is faithful, and say the second person must not appear.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
 Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "enable_loras": [exact LoRA names to enable, usually empty], "notes": one short sentence for the user}.`;
     const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
     $('improve-status').textContent = 'Asking Grok…'; $('btn-improve').disabled = true;
     try {
-      if (xai.vision && state.file) { try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(), detail: 'low' } }); } catch {} }
+      if (xai.vision && state.file) {
+        try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(state.file), detail: 'low' } }); } catch {}
+        if (state.outfit && edit && m.base === 'flux2') { try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(state.outfit), detail: 'low' } }); } catch {} }
+      }
       let text = await grokChat([{ role: 'system', content: sys }, { role: 'user', content: userContent }], { json: true });
       text = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       let out; try { out = JSON.parse(text); } catch { out = { prompt: text, negative: '', enable_loras: [], notes: '' }; }
@@ -395,6 +402,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     $('mode').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
     $('mode-hint').textContent = $('mode').hidden ? '' : MODE_HINT[state.mode];
     $('strength-field').hidden = state.mode === 'edit';
+    renderOutfitCard();
   }
   $('mode').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -417,13 +425,59 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     state.file = f;
     const url = URL.createObjectURL(f);
     const img = $('preview'); img.src = url; img.hidden = false;
-    $('drop').classList.add('has-image'); $('photo-actions').hidden = false;
+    $('drop').classList.add('has-image'); $('btn-change-photo').hidden = false;
     img.onload = () => { $('photo-meta').textContent = `${img.naturalWidth}×${img.naturalHeight}`; };
     updateGenerate();
   }
   function updateGenerate() {
     $('btn-generate').disabled = !(state.file && $('prompt').value.trim());
   }
+
+  // Outfit reference (second Kontext image; FLUX.2 edit mode only)
+  $('outfit-input').addEventListener('change', (e) => setOutfit(e.target.files[0]));
+  $('btn-outfit-remove').addEventListener('click', () => setOutfit(null));
+  $('btn-outfit-prompt').addEventListener('click', () => {
+    $('prompt').value = OUTFIT_PROMPT; LS.set('last_prompt', OUTFIT_PROMPT); updateGenerate(); renderSaved(); toast('Prompt written — edit it if you like');
+  });
+  const OUTFIT_PROMPT = 'Dress the person in the first image in the exact outfit worn by the person in the second image — same garments, colors, fabrics and fit. Keep the first person\'s face, hair, skin, body shape, pose, expression and the background exactly the same. Do not include the second person.';
+  function setOutfit(f) {
+    state.outfit = f || null;
+    const img = $('outfit-preview');
+    if (f) { img.src = URL.createObjectURL(f); img.hidden = false; $('outfit-drop').classList.add('has-image'); }
+    else { img.removeAttribute('src'); img.hidden = true; $('outfit-drop').classList.remove('has-image'); $('outfit-input').value = ''; }
+    $('btn-outfit-remove').hidden = !f; $('btn-outfit-prompt').hidden = !f;
+    if (f && !$('prompt').value.trim()) { $('prompt').value = OUTFIT_PROMPT; LS.set('last_prompt', OUTFIT_PROMPT); }
+    updateGenerate();
+  }
+  function renderOutfitCard() {
+    const m = currentModel();
+    $('outfit-card').hidden = !(m && m.base === 'flux2' && state.mode === 'edit');
+  }
+
+  // Paste an image: Cmd/Ctrl-V anywhere, or the 📋 buttons (iOS needs a tap to read the clipboard).
+  function imageFromClipboardItems(items) {
+    for (const it of items || []) if (it.type?.startsWith('image/')) { const f = it.getAsFile?.(); if (f) return f; }
+    return null;
+  }
+  document.addEventListener('paste', (e) => {
+    if ($('screen-app').hidden) return;
+    const f = imageFromClipboardItems(e.clipboardData?.items);
+    if (!f) return;
+    e.preventDefault();
+    const outfitOpen = !$('outfit-card').hidden;
+    if (!state.file) setFile(f); else if (outfitOpen && !state.outfit) { setOutfit(f); toast('Pasted as outfit reference'); } else setFile(f);
+  });
+  async function readClipboardImage() {
+    if (!navigator.clipboard?.read) throw new Error('Clipboard paste isn\'t available here — use Choose instead.');
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith('image/'));
+      if (type) { const blob = await item.getType(type); return new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type }); }
+    }
+    throw new Error('No image on the clipboard.');
+  }
+  $('btn-paste-photo').addEventListener('click', async () => { try { setFile(await readClipboardImage()); } catch (e) { toast(e.message); } });
+  $('btn-paste-outfit').addEventListener('click', async () => { try { setOutfit(await readClipboardImage()); } catch (e) { toast(e.message); } });
 
   // ---------- Generate (queued) ----------
   // Each tap on Generate uploads + enqueues immediately and adds a row to the local queue.
@@ -459,6 +513,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     const cfg = Number($('cfg').value) || 7;
     const seed = $('seed').value === '' ? Math.floor(Math.random() * 2 ** 31) : Number($('seed').value);
     const file = state.file;
+    const outfit = (model.base === 'flux2' && state.mode === 'edit') ? state.outfit : null;
 
     const job = { id: uid('j'), itemId: null, prompt, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false };
     state.jobs.push(job); $('app-error').textContent = ''; renderQueue();
@@ -467,9 +522,15 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       const fd = new FormData(); fd.append('file', file, file.name || 'photo.jpg');
       const up = await api('/api/v1/images/upload?image_category=user&is_intermediate=false', { method: 'POST', body: fd });
       const { width, height } = targetSize(up.width, up.height, model.base);
-      const args = { model, imageName: up.image_name, width, height, prompt, negative, strength, steps, cfg, seed };
+      let refImage = null;
+      if (outfit) {
+        const fd2 = new FormData(); fd2.append('file', outfit, outfit.name || 'outfit.jpg');
+        const up2 = await api('/api/v1/images/upload?image_category=user&is_intermediate=false', { method: 'POST', body: fd2 });
+        refImage = { imageName: up2.image_name, ...targetSize(up2.width, up2.height, model.base) };
+      }
+      const args = { model, imageName: up.image_name, width, height, prompt, negative, strength, steps, cfg, seed, refImage };
       const g = model.base === 'flux2' ? flux2Graph(args) : model.base === 'flux' ? fluxGraph(args) : sdGraph(args);
-      job.outputId = g.outputId; job.detail = `${model.name} · ${steps} steps · ${width}×${height}`;
+      job.outputId = g.outputId; job.detail = `${model.name} · ${steps} steps · ${width}×${height}${refImage ? ' · outfit ref' : ''}`;
       const enq = await api('/api/v1/queue/default/enqueue_batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch: { graph: g.graph, runs: 1, origin: 'imagine-mobile' } }),
@@ -633,7 +694,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
   }
 
   // FLUX.2 (Klein / Dev). Mirrors the working Invoke UI setup: standalone FLUX.2 VAE + Qwen3 encoder chosen explicitly.
-  function flux2Graph({ model, imageName, width, height, prompt, strength, steps, seed }) {
+  function flux2Graph({ model, imageName, width, height, prompt, strength, steps, seed, refImage }) {
     const id = uid('g');
     const isKlein = !/\bdev\b/i.test(model.name);
     const N = { loader: `${id}_loader`, txt: `${id}_txt`, resize: `${id}_resize`, enc: `${id}_enc`, den: `${id}_den`, dec: `${id}_dec` };
@@ -670,7 +731,17 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       // Reference-image editing: photo goes in as Kontext conditioning, generation starts from pure noise.
       N.ref = `${id}_ref`;
       nodes[N.ref] = { id: N.ref, type: 'flux_kontext', is_intermediate: true };
-      edges.push(E(N.resize, 'image', N.ref, 'image'), E(N.ref, 'kontext_cond', N.den, 'kontext_conditioning'));
+      edges.push(E(N.resize, 'image', N.ref, 'image'));
+      if (refImage) {
+        // Second reference (e.g. an outfit): resize → flux_kontext, then gather both into a list with `collect`.
+        N.resize2 = `${id}_resize2`; N.ref2 = `${id}_ref2`; N.col = `${id}_collect`;
+        nodes[N.resize2] = { id: N.resize2, type: 'img_resize', image: { image_name: refImage.imageName }, width: refImage.width, height: refImage.height, resample_mode: 'lanczos', is_intermediate: true };
+        nodes[N.ref2] = { id: N.ref2, type: 'flux_kontext', is_intermediate: true };
+        nodes[N.col] = { id: N.col, type: 'collect', is_intermediate: true };
+        edges.push(E(N.resize2, 'image', N.ref2, 'image'), E(N.ref, 'kontext_cond', N.col, 'item'), E(N.ref2, 'kontext_cond', N.col, 'item'), E(N.col, 'collection', N.den, 'kontext_conditioning'));
+      } else {
+        edges.push(E(N.ref, 'kontext_cond', N.den, 'kontext_conditioning'));
+      }
     } else {
       // Classic img2img: encode the photo, re-noise it to (1 - strength) and denoise.
       nodes[N.enc] = { id: N.enc, type: 'flux2_vae_encode', is_intermediate: true };

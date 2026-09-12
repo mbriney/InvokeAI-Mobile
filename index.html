@@ -53,10 +53,32 @@
           </div>
         </label>
         <input type="file" id="file-input" accept="image/*" hidden />
-        <div class="row" id="photo-actions" hidden>
-          <button class="ghost small" id="btn-change-photo">Change photo</button>
+        <div class="row">
+          <button class="ghost small" id="btn-change-photo" hidden>Change photo</button>
+          <button class="ghost small" id="btn-paste-photo">📋 Paste</button>
           <span class="grow"></span>
           <span class="meta" id="photo-meta"></span>
+        </div>
+      </div>
+
+      <!-- Outfit reference (FLUX.2 edit mode only) -->
+      <div class="card" id="outfit-card" hidden>
+        <div class="card-title row">
+          <span>Outfit reference <small class="meta">(optional)</small></span>
+          <span class="grow"></span>
+          <button class="ghost small danger" id="btn-outfit-remove" hidden>Remove</button>
+        </div>
+        <p class="meta">Add a photo of someone wearing an outfit and the person above will be shown wearing it.</p>
+        <div class="row gap">
+          <label class="drop drop-sm" id="outfit-drop" for="outfit-input">
+            <img id="outfit-preview" alt="" hidden />
+            <div class="drop-empty" id="outfit-empty"><div class="big">👗</div><div>Choose</div></div>
+          </label>
+          <input type="file" id="outfit-input" accept="image/*" hidden />
+          <div class="col grow">
+            <button class="ghost small" id="btn-paste-outfit">📋 Paste outfit photo</button>
+            <button class="ghost small" id="btn-outfit-prompt" hidden>✍️ Write the outfit prompt for me</button>
+          </div>
         </div>
       </div>
 

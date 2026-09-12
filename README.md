@@ -59,9 +59,13 @@ python3 -m http.server 8080   # then open http://localhost:8080
 
 (Add `http://localhost:8080` to `allow_origins` on the server for local testing.)
 
+## Saved presets
+
+**＋ Save current** stores the prompt, mode, negative prompt, strength/steps/CFG, model and active LoRAs (with weights) under a name. Tap a chip to load it; **Update** overwrites it with what's on screen; **Delete** removes it. Presets live in the browser's `localStorage` on that device only — nothing is written to the server or the repo, and they don't sync between phones.
+
 ## LoRAs
 
-Every LoRA installed on the server whose base matches the selected model is listed under **LoRAs** with an on/off toggle and a weight slider (−1 … 2, default 1). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
+Every LoRA installed on the server whose base matches the selected model is listed under **LoRAs** with an on/off toggle and a weight slider (−1 … 2, default 0.75). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
 
 Note for FLUX.2 Klein: Invoke can only patch LoRAs onto FP8 / NF4 / 8-bit builds — a GGUF k-quant main model silently ignores them (the same reason the Concepts picker greys out in the Invoke UI).
 

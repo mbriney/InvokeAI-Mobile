@@ -138,8 +138,67 @@
       $('prompt').value = LS.get('last_prompt') || '';
       updateGenerate();
       await loadModels();
+      renderSaved();
     } catch (err) { $('app-error').textContent = err.message; }
   }
+
+  // ---------- Saved presets (device-local, localStorage) ----------
+  const savedList = () => { try { return JSON.parse(LS.get('saved_presets') || '[]'); } catch { return []; } };
+  const savedWrite = (list) => LS.set('saved_presets', JSON.stringify(list));
+  let currentSavedId = null;
+  function snapshot() {
+    return {
+      prompt: $('prompt').value, negative: $('negative').value, mode: state.mode,
+      strength: Number($('strength').value), steps: Number($('steps').value), cfg: Number($('cfg').value),
+      modelKey: $('model').value || null, loras: Object.assign({}, state.activeLoras),
+    };
+  }
+  function applySaved(p) {
+    $('prompt').value = p.prompt || ''; LS.set('last_prompt', $('prompt').value);
+    $('negative').value = p.negative || '';
+    $('strength').value = p.strength ?? 0.65; $('strength-val').textContent = $('strength').value;
+    $('steps').value = p.steps ?? 4; $('cfg').value = p.cfg ?? 7;
+    if (p.modelKey && state.models.some((m) => m.key === p.modelKey)) { $('model').value = p.modelKey; LS.set('last_model_key', p.modelKey); }
+    state.activeLoras = {}; for (const [k, w] of Object.entries(p.loras || {})) if (state.loras.some((l) => l.key === k)) state.activeLoras[k] = w;
+    LS.set('active_loras', JSON.stringify(state.activeLoras));
+    const m = currentModel();
+    $('mode').hidden = !m || m.base !== 'flux2';
+    state.mode = (!m || m.base !== 'flux2') ? 'restyle' : (p.mode || 'edit'); LS.set('mode', state.mode);
+    renderMode(); renderLoras(); updateGenerate();
+  }
+  function renderSaved() {
+    const list = savedList(); const wrap = $('saved-chips'); wrap.innerHTML = '';
+    $('saved-empty').hidden = list.length > 0;
+    for (const p of list) {
+      const b = document.createElement('button'); b.className = 'chip' + (p.id === currentSavedId ? ' active' : '');
+      b.textContent = p.name; b.title = p.prompt;
+      b.addEventListener('click', () => { currentSavedId = p.id; applySaved(p); renderSaved(); });
+      wrap.appendChild(b);
+    }
+    const cur = list.find((p) => p.id === currentSavedId);
+    $('saved-actions').hidden = !cur;
+    if (cur) $('saved-current').textContent = `“${cur.name}” loaded`;
+  }
+  $('btn-save-preset').addEventListener('click', () => {
+    $('saved-name-row').hidden = false; $('saved-name').value = ''; $('saved-name').focus();
+  });
+  $('btn-save-cancel').addEventListener('click', () => { $('saved-name-row').hidden = true; });
+  $('btn-save-confirm').addEventListener('click', () => {
+    const name = $('saved-name').value.trim() || ($('prompt').value.trim().slice(0, 30) || 'Untitled');
+    const list = savedList(); const p = Object.assign({ id: uid('p'), name }, snapshot());
+    list.push(p); savedWrite(list); currentSavedId = p.id;
+    $('saved-name-row').hidden = true; renderSaved(); toast(`Saved “${name}”`);
+  });
+  $('saved-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-save-confirm').click(); });
+  $('btn-update-preset').addEventListener('click', () => {
+    const list = savedList(); const i = list.findIndex((p) => p.id === currentSavedId); if (i < 0) return;
+    list[i] = Object.assign({}, list[i], snapshot()); savedWrite(list); toast(`Updated “${list[i].name}”`);
+  });
+  $('btn-delete-preset').addEventListener('click', () => {
+    const list = savedList(); const p = list.find((x) => x.id === currentSavedId); if (!p) return;
+    savedWrite(list.filter((x) => x.id !== currentSavedId)); currentSavedId = null; renderSaved(); toast(`Deleted “${p.name}”`);
+  });
+  // Any manual change means the loaded preset is no longer exactly what's on screen — keep it highlighted, but that's what Update is for.
 
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
@@ -202,10 +261,10 @@
       const on = l.key in state.activeLoras;
       const row = document.createElement('div'); row.className = 'lora' + (on ? ' on' : '');
       row.innerHTML = `<button class="lora-toggle"><span class="dot"></span><span class="name">${l.name}</span></button>
-        <div class="lora-w" ${on ? '' : 'hidden'}><input type="range" min="-1" max="2" step="0.05" value="${state.activeLoras[l.key] ?? 1}" /><b>${(state.activeLoras[l.key] ?? 1).toFixed(2)}</b></div>`;
+        <div class="lora-w" ${on ? '' : 'hidden'}><input type="range" min="-1" max="2" step="0.05" value="${state.activeLoras[l.key] ?? 0.75}" /><b>${(state.activeLoras[l.key] ?? 0.75).toFixed(2)}</b></div>`;
       const range = row.querySelector('input'); const val = row.querySelector('b');
       row.querySelector('.lora-toggle').addEventListener('click', () => {
-        if (l.key in state.activeLoras) delete state.activeLoras[l.key]; else state.activeLoras[l.key] = Number(range.value);
+        if (l.key in state.activeLoras) delete state.activeLoras[l.key]; else state.activeLoras[l.key] = Number(range.value) || 0.75;
         LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras();
       });
       range.addEventListener('input', () => { state.activeLoras[l.key] = Number(range.value); val.textContent = Number(range.value).toFixed(2); LS.set('active_loras', JSON.stringify(state.activeLoras)); });

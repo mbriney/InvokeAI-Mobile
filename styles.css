@@ -57,6 +57,11 @@ button { font: inherit; cursor: pointer; }
 .seg { display: flex; background: var(--card-2); border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; background: transparent; border: none; color: var(--muted); border-radius: 9px; padding: 10px; font-size: 15px; font-weight: 600; }
 .seg button.active { background: var(--accent); color: #fff; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { background: var(--card-2); border: 2px solid transparent; color: var(--text); border-radius: 999px; padding: 9px 14px; font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.active { border-color: var(--accent); background: #2a2340; }
+.ghost.danger { color: var(--danger); }
+#saved-name-row input { flex: 1; }
 .lora { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid #26262e; }
 .lora:last-child { border-bottom: none; }
 .lora-toggle { display: flex; align-items: center; gap: 10px; background: none; border: none; color: var(--text); padding: 4px 0; font-size: 16px; text-align: left; width: 100%; }

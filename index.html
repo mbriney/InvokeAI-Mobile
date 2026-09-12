@@ -75,6 +75,28 @@
         </div>
       </div>
 
+      <!-- Saved presets (stored on this device only) -->
+      <div class="card" id="saved-card">
+        <div class="card-title row">
+          <span>Saved</span>
+          <span class="grow"></span>
+          <button class="ghost small" id="btn-save-preset">＋ Save current</button>
+        </div>
+        <div class="chips" id="saved-chips"></div>
+        <p class="meta" id="saved-empty">Nothing saved yet. Set up a prompt, mode, LoRAs and options, then tap “Save current”.</p>
+        <div class="row" id="saved-name-row" hidden>
+          <input type="text" id="saved-name" placeholder="Name this preset" maxlength="40" />
+          <button class="primary small" id="btn-save-confirm">Save</button>
+          <button class="ghost small" id="btn-save-cancel">Cancel</button>
+        </div>
+        <div class="row" id="saved-actions" hidden>
+          <span class="meta" id="saved-current"></span>
+          <span class="grow"></span>
+          <button class="ghost small" id="btn-update-preset">Update</button>
+          <button class="ghost small danger" id="btn-delete-preset">Delete</button>
+        </div>
+      </div>
+
       <!-- Step 3: tweak -->
       <div class="card">
         <div class="card-title row">

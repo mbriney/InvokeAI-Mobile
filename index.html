@@ -128,16 +128,10 @@
 
       <button class="primary big-btn" id="btn-generate" disabled>Generate</button>
 
-      <!-- Progress -->
-      <div class="card" id="progress" hidden>
-        <div class="row">
-          <div class="spinner"></div>
-          <div class="grow">
-            <div id="progress-text">Uploading…</div>
-            <div class="meta" id="progress-sub"></div>
-          </div>
-          <button class="ghost small" id="btn-cancel">Cancel</button>
-        </div>
+      <!-- Queue -->
+      <div class="card" id="queue" hidden>
+        <div class="card-title" id="queue-title">Queue</div>
+        <div id="queue-list"></div>
       </div>
 
       <!-- Result -->
@@ -175,6 +169,22 @@
       <p class="meta center-text">Last 50 images generated on this server. Tap to open; use Select to delete.</p>
     </main>
   </section>
+
+  <!-- Full-screen viewer -->
+  <div id="viewer" hidden>
+    <div class="viewer-top">
+      <button class="icon-btn" id="btn-viewer-close">✕</button>
+      <span class="grow"></span>
+      <span class="meta" id="viewer-status"></span>
+    </div>
+    <img id="viewer-img" alt="" />
+    <div class="viewer-bottom">
+      <button class="primary grow" id="btn-viewer-save" disabled>Save to Photos</button>
+      <button class="ghost danger" id="btn-viewer-delete">Delete</button>
+      <button class="ghost danger confirm" id="btn-viewer-confirm" hidden>Delete for good</button>
+      <button class="ghost" id="btn-viewer-keep" hidden>Keep</button>
+    </div>
+  </div>
 
   <div class="toast" id="toast" hidden></div>
 

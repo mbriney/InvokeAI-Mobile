@@ -8,7 +8,7 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
 ## How it works
 
 1. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
-2. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. The prompt is remembered between sessions. Two modes:
+2. Each tap on **Generate** uploads the photo and queues a job right away — you can keep editing the prompt and queueing more. A **Queue** card shows what's uploading / waiting / generating / downloading (with Cancel), and each finished image lands in the preview as it arrives; all of them are in the 🕘 history. The prompt is remembered between sessions. Two modes:
    - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
    - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
 3. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
@@ -81,5 +81,5 @@ manifest.webmanifest, icon-*.png   PWA / home-screen icon
 
 - FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps are dropped to 4 automatically when a FLUX.2 model is selected (CFG is ignored by Klein). FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
 - SD 1.5 models are sent images with a longest edge of 768.
-- The gallery (🕘) shows the last 50 non-intermediate images on the server. Tap to open one; **Select** → tap images → **Delete** → **Confirm** removes them from the server for good (two taps, no pop-ups).
+- The gallery (🕘) shows the last 50 non-intermediate images on the server. Tap one for a full-screen view with **Save to Photos** and **Delete**; **Select** → tap images → **Delete** → **Confirm** removes several at once. Deletion is permanent on the server (two taps, no pop-ups).
 - The JWT is stored in `localStorage`; use ⎋ to sign out.

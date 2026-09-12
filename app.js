@@ -27,7 +27,6 @@
     loras: [],            // all LoRAs on the server
     activeLoras: {},      // key -> weight
     subModels: { t5_encoder: [], clip_embed: [], vae: [], qwen3_encoder: [] },
-    job: null,      // { itemId, cancelled }
     resultBlob: null,
     resultName: '',
   };
@@ -174,7 +173,7 @@
   // Re-check the loaded/edited state whenever any setting changes.
   for (const id of ['prompt', 'negative', 'strength', 'steps', 'cfg', 'model', 'seed']) $(id).addEventListener('input', () => renderSaved());
   $('model').addEventListener('change', () => renderSaved());
-  $('mode').addEventListener('click', () => renderSaved());
+  $('mode').addEventListener('click', () => setTimeout(renderSaved, 0)); // after the mode handler has run
   $('btn-revert-preset').addEventListener('click', () => {
     const p = savedList().find((x) => x.id === currentSavedId); if (p) { applySaved(p); renderSaved(); }
   });
@@ -317,10 +316,15 @@
     updateGenerate();
   }
   function updateGenerate() {
-    $('btn-generate').disabled = !(state.file && $('prompt').value.trim() && !state.job);
+    $('btn-generate').disabled = !(state.file && $('prompt').value.trim());
   }
 
-  // ---------- Generate ----------
+  // ---------- Generate (queued) ----------
+  // Each tap on Generate uploads + enqueues immediately and adds a row to the local queue.
+  // A single background poller watches all active items; results land in the preview as they finish.
+  state.jobs = [];            // { id, itemId, prompt, model, status, t0, error, imageName }
+  let pollerRunning = false;
+
   $('btn-generate').addEventListener('click', generate);
   $('btn-again').addEventListener('click', () => { $('seed').value = ''; generate(); });
   $('btn-clear').addEventListener('click', () => {
@@ -329,11 +333,6 @@
     $('result-img').removeAttribute('src'); $('result').hidden = true;
     state.resultBlob = null; state.resultName = ''; $('app-error').textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
-  $('btn-cancel').addEventListener('click', async () => {
-    if (!state.job) return;
-    state.job.cancelled = true;
-    try { await api(`/api/v1/queue/default/i/${state.job.itemId}/cancel`, { method: 'PUT' }); } catch {}
   });
 
   function targetSize(w, h, base) {
@@ -345,7 +344,7 @@
   }
 
   async function generate() {
-    if (state.job) return;
+    if (!state.file || !$('prompt').value.trim()) return;
     const model = currentModel();
     const prompt = $('prompt').value.trim();
     const negative = $('negative').value.trim();
@@ -353,78 +352,101 @@
     const steps = Number($('steps').value) || 30;
     const cfg = Number($('cfg').value) || 7;
     const seed = $('seed').value === '' ? Math.floor(Math.random() * 2 ** 31) : Number($('seed').value);
+    const file = state.file;
 
-    state.job = { itemId: null, cancelled: false }; const t0 = Date.now();
-    $('app-error').textContent = ''; $('result').hidden = true; $('progress').hidden = false;
-    $('progress').classList.remove('done'); $('btn-cancel').hidden = false;
-    $('progress-text').textContent = 'Uploading photo…'; $('progress-sub').textContent = '';
-    updateGenerate();
+    const job = { id: uid('j'), itemId: null, prompt, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false };
+    state.jobs.push(job); $('app-error').textContent = ''; renderQueue();
 
     try {
-      // 1) upload
-      const fd = new FormData(); fd.append('file', state.file, state.file.name || 'photo.jpg');
+      const fd = new FormData(); fd.append('file', file, file.name || 'photo.jpg');
       const up = await api('/api/v1/images/upload?image_category=user&is_intermediate=false', { method: 'POST', body: fd });
       const { width, height } = targetSize(up.width, up.height, model.base);
-
-      // 2) graph
       const args = { model, imageName: up.image_name, width, height, prompt, negative, strength, steps, cfg, seed };
       const g = model.base === 'flux2' ? flux2Graph(args) : model.base === 'flux' ? fluxGraph(args) : sdGraph(args);
-
-      $('progress-text').textContent = 'Queued…';
+      job.outputId = g.outputId; job.detail = `${model.name} · ${steps} steps · ${width}×${height}`;
       const enq = await api('/api/v1/queue/default/enqueue_batch', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch: { graph: g.graph, runs: 1, origin: 'imagine-mobile' }, prepend: true }),
+        body: JSON.stringify({ batch: { graph: g.graph, runs: 1, origin: 'imagine-mobile' } }),
       });
-      const itemId = enq.item_ids?.[0];
-      if (itemId == null) throw new Error('Server did not return a queue item id.');
-      state.job.itemId = itemId;
-
-      // 3) poll
-      let item;
-      for (;;) {
-        await sleep(CFG.pollMs);
-        item = await api(`/api/v1/queue/default/i/${itemId}`);
-        const st = item.status;
-        if (st === 'pending') { $('progress-text').textContent = 'Waiting in queue…'; }
-        else if (st === 'in_progress') { $('progress-text').textContent = 'Generating…'; $('progress-sub').textContent = `${model.name} · ${steps} steps · ${width}×${height}` + (Object.keys(state.activeLoras).length ? ` · ${lorasForModel(model).filter((l) => l.key in state.activeLoras).length} LoRA` : ''); }
-        if (st === 'completed' || st === 'failed' || st === 'canceled') break;
-      }
-      if (item.status === 'canceled') { toast('Cancelled'); $('progress').hidden = true; return; }
-      if (item.status === 'failed') throw new Error(item.error_message || item.error || 'Generation failed on the server.');
-
-      // 4) find the output image
-      const results = item.session?.results || {};
-      let imageName = null;
-      for (const [k, r] of Object.entries(results)) {
-        if (r?.image?.image_name && (k === g.outputId || k.startsWith(g.outputId))) imageName = r.image.image_name;
-      }
-      if (!imageName) for (const r of Object.values(results)) if (r?.image?.image_name) imageName = r.image.image_name;
-      if (!imageName) throw new Error('Finished, but no image was found in the result.');
-
-      $('progress-text').textContent = 'Downloading image…'; $('progress-sub').textContent = '';
-      const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
-      const blob = await apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`, (loaded, total) => {
-        $('progress-sub').textContent = total ? `${Math.round((loaded / total) * 100)}% · ${fmt(loaded)} of ${fmt(total)}` : fmt(loaded);
-      });
-      state.resultBlob = blob; state.resultName = imageName;
-      const url = URL.createObjectURL(blob);
-      $('result-img').src = url; $('result').hidden = false;
-      $('result-hint').textContent = navigator.canShare ? '' : 'Tip: press and hold the image, then choose “Add to Photos”.';
-      $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setDone(`Done in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+      job.itemId = enq.item_ids?.[0];
+      if (job.itemId == null) throw new Error('Server did not return a queue item id.');
+      job.status = 'pending'; renderQueue();
+      runPoller();
     } catch (err) {
-      if (!state.job?.cancelled) $('app-error').textContent = err.message;
-      $('progress').hidden = true;
-    } finally {
-      state.job = null; updateGenerate();
+      job.status = 'failed'; job.error = err.message; renderQueue();
     }
   }
-  // Swap the spinner for a check mark, then tuck the card away.
-  function setDone(text) {
-    $('progress').classList.add('done'); $('progress-text').textContent = text; $('progress-sub').textContent = '';
-    $('btn-cancel').hidden = true;
-    setTimeout(() => { $('progress').hidden = true; $('progress').classList.remove('done'); $('btn-cancel').hidden = false; }, 1800);
+
+  async function cancelJob(job) {
+    job.cancelled = true;
+    if (job.itemId != null) { try { await api(`/api/v1/queue/default/i/${job.itemId}/cancel`, { method: 'PUT' }); } catch {} }
+    else { job.status = 'canceled'; renderQueue(); }
   }
+
+  async function runPoller() {
+    if (pollerRunning) return; pollerRunning = true;
+    try {
+      for (;;) {
+        const active = state.jobs.filter((j) => j.status === 'pending' || j.status === 'in_progress');
+        if (!active.length) break;
+        await sleep(CFG.pollMs);
+        for (const job of active) {
+          let item;
+          try { item = await api(`/api/v1/queue/default/i/${job.itemId}`); } catch (e) { job.status = 'failed'; job.error = e.message; continue; }
+          if (item.status === 'pending' || item.status === 'in_progress') { job.status = item.status; continue; }
+          if (item.status === 'canceled') { job.status = 'canceled'; continue; }
+          if (item.status === 'failed') { job.status = 'failed'; job.error = item.error_message || item.error || 'Generation failed on the server.'; continue; }
+          // completed → find the output image, download it, show it
+          const results = item.session?.results || {};
+          let imageName = null;
+          for (const [k, r] of Object.entries(results)) if (r?.image?.image_name && (k === job.outputId || k.startsWith(job.outputId))) imageName = r.image.image_name;
+          if (!imageName) for (const r of Object.values(results)) if (r?.image?.image_name) imageName = r.image.image_name;
+          if (!imageName) { job.status = 'failed'; job.error = 'Finished, but no image was found in the result.'; continue; }
+          job.imageName = imageName; job.status = 'downloading'; job.progress = ''; renderQueue();
+          try {
+            const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
+            const blob = await apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`, (loaded, total) => {
+              job.progress = total ? `${Math.round((loaded / total) * 100)}%` : fmt(loaded); renderQueue();
+            });
+            showResult(blob, imageName);
+            job.status = 'done'; job.doneAt = Date.now();
+            setTimeout(() => { state.jobs = state.jobs.filter((j) => j !== job); renderQueue(); }, 2500);
+          } catch (e) { job.status = 'failed'; job.error = e.message; }
+        }
+        renderQueue();
+      }
+    } finally { pollerRunning = false; renderQueue(); }
+  }
+
+  function showResult(blob, imageName) {
+    if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
+    state.resultBlob = blob; state.resultName = imageName;
+    $('result-img').src = URL.createObjectURL(blob); $('result').hidden = false;
+    $('result-hint').textContent = navigator.canShare ? '' : 'Tip: press and hold the image, then choose “Add to Photos”.';
+  }
+
+  const STATUS_LABEL = { uploading: 'Uploading photo…', pending: 'Waiting in queue…', in_progress: 'Generating…', downloading: 'Downloading…', done: 'Done', failed: 'Failed', canceled: 'Cancelled' };
+  function renderQueue() {
+    const card = $('queue'); const list = $('queue-list');
+    const jobs = state.jobs;
+    card.hidden = !jobs.length; list.innerHTML = '';
+    for (const job of jobs) {
+      const row = document.createElement('div'); row.className = `qrow ${job.status}`;
+      const active = ['uploading', 'pending', 'in_progress', 'downloading'].includes(job.status);
+      const secs = Math.round(((job.doneAt || Date.now()) - job.t0) / 1000);
+      const sub = job.status === 'failed' ? job.error : job.status === 'downloading' ? `${job.progress || ''} · ${job.detail || ''}` : job.status === 'in_progress' ? `${job.detail || ''} · ${secs}s` : job.status === 'done' ? `${secs}s` : '';
+      row.innerHTML = `<span class="qicon">${active ? '<span class="spinner"></span>' : job.status === 'done' ? '✓' : job.status === 'failed' ? '!' : '–'}</span>
+        <div class="grow"><div class="qprompt">${job.prompt.replace(/</g, '&lt;')}</div><div class="meta">${STATUS_LABEL[job.status]}${sub ? ' · ' + sub : ''}</div></div>`;
+      const btn = document.createElement('button'); btn.className = 'ghost small';
+      if (active && job.status !== 'downloading') { btn.textContent = 'Cancel'; btn.addEventListener('click', () => cancelJob(job)); row.appendChild(btn); }
+      else if (!active && job.status !== 'done') { btn.textContent = '✕'; btn.addEventListener('click', () => { state.jobs = state.jobs.filter((j) => j !== job); renderQueue(); }); row.appendChild(btn); }
+      list.appendChild(row);
+    }
+    const n = jobs.filter((j) => ['uploading', 'pending', 'in_progress', 'downloading'].includes(j.status)).length;
+    $('queue-title').textContent = n ? `Queue · ${n} running` : 'Queue';
+  }
+  // Keep elapsed-time labels ticking while anything is running.
+  setInterval(() => { if (state.jobs.some((j) => j.status === 'in_progress')) renderQueue(); }, 1000);
 
   // ---------- Graph builders ----------
   function sdGraph({ model, imageName, width, height, prompt, negative, strength, steps, cfg, seed }) {
@@ -555,9 +577,9 @@
 
   // ---------- Save ----------
   $('btn-save').addEventListener('click', saveResult);
-  async function saveResult() {
-    if (!state.resultBlob) return;
-    const file = new File([state.resultBlob], state.resultName || 'imagine.png', { type: state.resultBlob.type || 'image/png' });
+  async function saveResult() { if (state.resultBlob) shareBlob(state.resultBlob, state.resultName); }
+  async function shareBlob(blob, name) {
+    const file = new File([blob], name || 'imagine.png', { type: blob.type || 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }
@@ -629,18 +651,43 @@
             tile.classList.toggle('selected', gal.selected.has(it.image_name)); armDelete(false); updateGalleryBar();
             return;
           }
-          try {
-            const blob = await apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/full`);
-            state.resultBlob = blob; state.resultName = it.image_name;
-            $('result-img').src = URL.createObjectURL(blob); $('result').hidden = false;
-            show('screen-app'); $('result').scrollIntoView();
-          } catch (e) { toast(e.message); }
+          openViewer(it.image_name, img.src);
         });
         grid.appendChild(tile);
         apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/thumbnail`).then((b) => (img.src = URL.createObjectURL(b))).catch(() => {});
       }
     } catch (e) { grid.innerHTML = `<p class="error">${e.message}</p>`; }
   }
+
+  // ---------- Full-screen viewer ----------
+  const viewer = { name: null, blob: null };
+  function openViewer(name, thumbUrl) {
+    viewer.name = name; viewer.blob = null;
+    const v = $('viewer'); const img = $('viewer-img');
+    img.src = thumbUrl || ''; v.hidden = false; document.body.style.overflow = 'hidden';
+    $('viewer-status').textContent = 'Loading full size…'; $('btn-viewer-save').disabled = true; viewerArm(false);
+    const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
+    apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(name)}/full`, (l, t) => { $('viewer-status').textContent = t ? `Loading ${Math.round((l / t) * 100)}%` : `Loading ${fmt(l)}`; })
+      .then((blob) => { if (viewer.name !== name) return; viewer.blob = blob; img.src = URL.createObjectURL(blob); $('viewer-status').textContent = ''; $('btn-viewer-save').disabled = false; })
+      .catch((e) => { if (viewer.name === name) $('viewer-status').textContent = e.message; });
+  }
+  function closeViewer() { $('viewer').hidden = true; document.body.style.overflow = ''; viewer.name = null; viewer.blob = null; }
+  function viewerArm(on) { $('btn-viewer-delete').hidden = on; $('btn-viewer-confirm').hidden = !on; $('btn-viewer-keep').hidden = !on; }
+  $('btn-viewer-close').addEventListener('click', closeViewer);
+  $('viewer').addEventListener('click', (e) => { if (e.target === $('viewer') || e.target === $('viewer-img')) closeViewer(); });
+  $('btn-viewer-save').addEventListener('click', () => { if (viewer.blob) shareBlob(viewer.blob, viewer.name); });
+  $('btn-viewer-delete').addEventListener('click', () => viewerArm(true));
+  $('btn-viewer-keep').addEventListener('click', () => viewerArm(false));
+  $('btn-viewer-confirm').addEventListener('click', async () => {
+    const name = viewer.name; if (!name) return;
+    try {
+      await api(`/api/v1/images/i/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      $('gallery-grid').querySelector(`[data-name="${CSS.escape(name)}"]`)?.remove();
+      gal.items = gal.items.filter((it) => it.image_name !== name);
+      if (state.resultName === name) { $('result').hidden = true; state.resultBlob = null; state.resultName = ''; }
+      closeViewer(); toast('Deleted');
+    } catch (e) { toast(e.message); viewerArm(false); }
+  });
 
   boot();
 })();

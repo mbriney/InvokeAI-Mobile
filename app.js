@@ -108,6 +108,7 @@
   // ---------- Boot ----------
   async function boot() {
     document.title = CFG.appTitle; $('app-title').textContent = CFG.appTitle;
+    if (CFG.build) $('app-title').title = `build ${CFG.build}`;
     $('login-host').textContent = CFG.baseUrl.replace(/^https?:\/\//, '');
     if (!CFG.baseUrl) { show('screen-login'); $('login-error').textContent = 'config.js is missing INVOKE_URL. See README.'; return; }
     if (!state.token) { show('screen-login'); return; }
@@ -200,7 +201,7 @@
 
   // ---------- Settings / xAI ----------
   const xai = { key: LS.get('xai_key') || '', model: LS.get('xai_model') || '', vision: LS.get('xai_vision') !== '0' };
-  $('btn-settings').addEventListener('click', () => { show('screen-settings'); $('xai-key').value = xai.key; $('xai-vision').checked = xai.vision; $('xai-status').textContent = ''; if (xai.key) loadXaiModels(); });
+  $('btn-settings').addEventListener('click', () => { show('screen-settings'); $('build-info').textContent = CFG.build ? `Build ${CFG.build}` : ''; $('xai-key').value = xai.key; $('xai-vision').checked = xai.vision; $('xai-status').textContent = ''; if (xai.key) loadXaiModels(); });
   $('btn-settings-back').addEventListener('click', () => { show('screen-app'); renderImproveRow(); });
   $('xai-key').addEventListener('change', () => loadXaiModels($('xai-key').value.trim()));
   $('btn-xai-save').addEventListener('click', () => {
@@ -282,14 +283,16 @@ MODEL: ${m.name} — ${family}.
 ${guide}
 LoRAs on the server for this model (ENABLED ones are active in this generation; include their trigger words naturally in the prompt if they are relevant; you may recommend enabling an available one only if it clearly fits the idea):
 ${loraContext(m)}
-${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached: IMAGE 1 is the person to keep (the generation is anchored on this photo — its composition, identity and background are preserved); IMAGE 2 is a reference showing an outfit on someone else. Write the instruction as "change only the clothing" — describe the garments you actually see in image 2 (type, color, fabric, fit, details) as the target outfit, and state that this person\'s face, hair, pose, framing and background stay as they are and nothing else from the reference is copied.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
+${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached in the order the model will see them: IMAGE 1 is the person to keep; IMAGE 2 shows an outfit on someone else. Refer to them literally as "image 1" and "image 2". Say to output a single photo of the person from image 1 wearing the outfit from image 2; describe the garments you actually see in image 2 (type, color, fabric, fit, details); keep face, hair, pose, framing and background from image 1; and do not show the person or background from image 2.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
 Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "enable_loras": [exact LoRA names to enable, usually empty], "notes": one short sentence for the user}.`;
     const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
     $('improve-status').textContent = 'Asking Grok…'; $('btn-improve').disabled = true;
     try {
       if (xai.vision && state.file) {
         try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(state.file), detail: 'low' } }); } catch {}
-        if (state.outfit && edit && m.base === 'flux2') { try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(state.outfit), detail: 'low' } }); } catch {} }
+        if (state.outfit && edit && m.base === 'flux2') {
+          try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(state.outfit), detail: 'low' } }); } catch {}
+        }
       }
       let text = await grokChat([{ role: 'system', content: sys }, { role: 'user', content: userContent }], { json: true });
       text = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
@@ -436,18 +439,21 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
   // Outfit reference (second Kontext image; FLUX.2 edit mode only)
   $('outfit-input').addEventListener('change', (e) => setOutfit(e.target.files[0]));
   $('btn-outfit-remove').addEventListener('click', () => setOutfit(null));
-  $('outfit-strength').addEventListener('input', () => ($('outfit-strength-val').textContent = Number($('outfit-strength').value).toFixed(2)));
+  // Both photos go in as references (yours first — `collect` orders by node id). Verified on Klein 4B FP8: this keeps
+  // face, hat, pose and background and swaps the garments; anchoring on the person's latents does not work.
+  function outfitPrompt() {
+    return 'Output a single photo of the person from image 1 wearing the exact outfit worn in image 2 — same garments, colors, fabrics and fit. Keep the face, hair, skin, body shape, pose, expression, framing and background from image 1 unchanged. Do not show the person or background from image 2.';
+  }
   $('btn-outfit-prompt').addEventListener('click', () => {
-    $('prompt').value = OUTFIT_PROMPT; LS.set('last_prompt', OUTFIT_PROMPT); updateGenerate(); renderSaved(); toast('Prompt written — edit it if you like');
+    $('prompt').value = outfitPrompt(); LS.set('last_prompt', $('prompt').value); updateGenerate(); renderSaved(); toast('Prompt written — edit it if you like');
   });
-  const OUTFIT_PROMPT = 'Change only the clothing: dress this person in the outfit from the reference photo — same garments, colors, fabrics and fit. Keep this person\'s face, hair, skin, body shape, pose, expression, framing and background exactly as they are. Do not copy the reference photo\'s person, pose or background.';
   function setOutfit(f) {
     state.outfit = f || null;
     const img = $('outfit-preview');
     if (f) { img.src = URL.createObjectURL(f); img.hidden = false; $('outfit-drop').classList.add('has-image'); }
     else { img.removeAttribute('src'); img.hidden = true; $('outfit-drop').classList.remove('has-image'); $('outfit-input').value = ''; }
-    $('btn-outfit-remove').hidden = !f; $('btn-outfit-prompt').hidden = !f; $('outfit-strength-field').hidden = !f;
-    if (f && !$('prompt').value.trim()) { $('prompt').value = OUTFIT_PROMPT; LS.set('last_prompt', OUTFIT_PROMPT); }
+    $('btn-outfit-remove').hidden = !f; $('btn-outfit-prompt').hidden = !f;
+    if (f && !$('prompt').value.trim()) { $('prompt').value = outfitPrompt(); LS.set('last_prompt', $('prompt').value); }
     updateGenerate();
   }
   function renderOutfitCard() {
@@ -528,7 +534,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
         const fd2 = new FormData(); fd2.append('file', outfit, outfit.name || 'outfit.jpg');
         const up2 = await api('/api/v1/images/upload?image_category=user&is_intermediate=false', { method: 'POST', body: fd2 });
         const r = targetSize(up2.width, up2.height, model.base); const k = Math.min(1, 768 / Math.max(r.width, r.height));
-        refImage = { imageName: up2.image_name, width: round(r.width * k, 16), height: round(r.height * k, 16), strength: Number($('outfit-strength').value) };
+        refImage = { imageName: up2.image_name, width: round(r.width * k, 16), height: round(r.height * k, 16) };
       }
       const args = { model, imageName: up.image_name, width, height, prompt, negative, strength, steps, cfg, seed, refImage };
       const g = model.base === 'flux2' ? flux2Graph(args) : model.base === 'flux' ? fluxGraph(args) : sdGraph(args);
@@ -566,11 +572,14 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
           if (item.status === 'canceled') { job.status = 'canceled'; continue; }
           if (item.status === 'failed') { job.status = 'failed'; job.error = item.error_message || item.error || 'Generation failed on the server.'; continue; }
           // completed → find the output image, download it, show it
+          // Execution node ids are UUIDs; session.source_prepared_mapping maps our node id → prepared id(s).
+          // (Never fall back to "any image in the results" — the resize nodes emit images too.)
           const results = item.session?.results || {};
+          const prepared = item.session?.source_prepared_mapping?.[job.outputId] || [];
           let imageName = null;
-          for (const [k, r] of Object.entries(results)) if (r?.image?.image_name && (k === job.outputId || k.startsWith(job.outputId))) imageName = r.image.image_name;
-          if (!imageName) for (const r of Object.values(results)) if (r?.image?.image_name) imageName = r.image.image_name;
-          if (!imageName) { job.status = 'failed'; job.error = 'Finished, but no image was found in the result.'; continue; }
+          for (const pid of prepared) if (results[pid]?.image?.image_name) imageName = results[pid].image.image_name;
+          if (!imageName) for (const [k, r] of Object.entries(results)) if (r?.image?.image_name && k === job.outputId) imageName = r.image.image_name;
+          if (!imageName) { job.status = 'failed'; job.error = 'Finished, but the output image could not be located in the result.'; continue; }
           job.imageName = imageName; job.status = 'downloading'; job.progress = ''; renderQueue();
           try {
             const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
@@ -715,7 +724,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       [N.resize]: { id: N.resize, type: 'img_resize', image: { image_name: imageName }, width, height, resample_mode: 'lanczos', is_intermediate: true },
       [N.den]: {
         id: N.den, type: 'flux2_denoise', num_steps: steps, cfg_scale: 1, scheduler: 'euler',
-        denoising_start: edit ? (refImage ? Math.max(0, Math.min(1, 1 - refImage.strength)) : 0) : Math.max(0, Math.min(1, 1 - strength)), denoising_end: 1, add_noise: true, width, height, seed, is_intermediate: true,
+        denoising_start: edit ? 0 : Math.max(0, Math.min(1, 1 - strength)), denoising_end: 1, add_noise: true, width, height, seed, is_intermediate: true,
       },
       [N.dec]: { id: N.dec, type: 'flux2_vae_decode', is_intermediate: false, use_cache: false },
     };
@@ -733,18 +742,16 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       // Reference-image editing: photo goes in as Kontext conditioning, generation starts from pure noise.
       N.ref = `${id}_ref`;
       nodes[N.ref] = { id: N.ref, type: 'flux_kontext', is_intermediate: true };
-      edges.push(E(N.resize, 'image', N.ref, 'image'));
+      if (!refImage) edges.push(E(N.resize, 'image', N.ref, 'image'));
       if (refImage) {
-        // Second reference (e.g. an outfit): resize → flux_kontext, then gather both into a list with `collect`.
-        N.resize2 = `${id}_resize2`; N.ref2 = `${id}_ref2`; N.col = `${id}_collect`;
+        // Second reference (e.g. an outfit). `collect` orders items by source node id: "_ka" (person) is image 1, "_kb" (outfit) is image 2.
+        N.resize2 = `${id}_resize2`; N.col = `${id}_collect`; const ka = `${id}_ka`, kb = `${id}_kb`;
+        delete nodes[N.ref];
         nodes[N.resize2] = { id: N.resize2, type: 'img_resize', image: { image_name: refImage.imageName }, width: refImage.width, height: refImage.height, resample_mode: 'lanczos', is_intermediate: true };
-        nodes[N.ref2] = { id: N.ref2, type: 'flux_kontext', is_intermediate: true };
+        nodes[ka] = { id: ka, type: 'flux_kontext', is_intermediate: true };
+        nodes[kb] = { id: kb, type: 'flux_kontext', is_intermediate: true };
         nodes[N.col] = { id: N.col, type: 'collect', is_intermediate: true };
-        edges.push(E(N.resize2, 'image', N.ref2, 'image'), E(N.ref, 'kontext_cond', N.col, 'item'), E(N.ref2, 'kontext_cond', N.col, 'item'), E(N.col, 'collection', N.den, 'kontext_conditioning'));
-        // Anchor: start from the person's own latents (partially re-noised) so the composition, identity and
-        // framing come from their photo and the outfit image can only contribute the clothing.
-        nodes[N.enc] = { id: N.enc, type: 'flux2_vae_encode', is_intermediate: true };
-        edges.push(E(N.loader, 'vae', N.enc, 'vae'), E(N.resize, 'image', N.enc, 'image'), E(N.enc, 'latents', N.den, 'latents'));
+        edges.push(E(N.resize, 'image', ka, 'image'), E(N.resize2, 'image', kb, 'image'), E(ka, 'kontext_cond', N.col, 'item'), E(kb, 'kontext_cond', N.col, 'item'), E(N.col, 'collection', N.den, 'kontext_conditioning'));
       } else {
         edges.push(E(N.ref, 'kontext_cond', N.den, 'kontext_conditioning'));
       }

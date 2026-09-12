@@ -65,6 +65,24 @@
     return ct.includes('application/json') ? res.json() : res;
   }
   const apiBlob = async (path) => (await api(path)).blob();
+  // Download with progress + timeout: onProgress(loadedBytes, totalBytes|null)
+  async function apiBlobProgress(path, onProgress, timeoutMs = 90000) {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await api(path, { signal: ctrl.signal });
+      const total = Number(res.headers.get('content-length')) || null;
+      if (!res.body) return await res.blob();
+      const reader = res.body.getReader(); const chunks = []; let loaded = 0;
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break;
+        chunks.push(value); loaded += value.length; onProgress?.(loaded, total);
+      }
+      return new Blob(chunks, { type: res.headers.get('content-type') || 'image/png' });
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Image download timed out — check the 🕘 gallery, the image is on the server.');
+      throw e;
+    } finally { clearTimeout(t); }
+  }
 
   // ---------- Login ----------
   $('login-form').addEventListener('submit', async (e) => {
@@ -312,8 +330,9 @@
     const cfg = Number($('cfg').value) || 7;
     const seed = $('seed').value === '' ? Math.floor(Math.random() * 2 ** 31) : Number($('seed').value);
 
-    state.job = { itemId: null, cancelled: false };
+    state.job = { itemId: null, cancelled: false }; const t0 = Date.now();
     $('app-error').textContent = ''; $('result').hidden = true; $('progress').hidden = false;
+    $('progress').classList.remove('done'); $('btn-cancel').hidden = false;
     $('progress-text').textContent = 'Uploading photo…'; $('progress-sub').textContent = '';
     updateGenerate();
 
@@ -346,7 +365,7 @@
         else if (st === 'in_progress') { $('progress-text').textContent = 'Generating…'; $('progress-sub').textContent = `${model.name} · ${steps} steps · ${width}×${height}` + (Object.keys(state.activeLoras).length ? ` · ${lorasForModel(model).filter((l) => l.key in state.activeLoras).length} LoRA` : ''); }
         if (st === 'completed' || st === 'failed' || st === 'canceled') break;
       }
-      if (item.status === 'canceled') { toast('Cancelled'); return; }
+      if (item.status === 'canceled') { toast('Cancelled'); $('progress').hidden = true; return; }
       if (item.status === 'failed') throw new Error(item.error_message || item.error || 'Generation failed on the server.');
 
       // 4) find the output image
@@ -358,18 +377,29 @@
       if (!imageName) for (const r of Object.values(results)) if (r?.image?.image_name) imageName = r.image.image_name;
       if (!imageName) throw new Error('Finished, but no image was found in the result.');
 
-      $('progress-text').textContent = 'Fetching image…';
-      const blob = await apiBlob(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`);
+      $('progress-text').textContent = 'Downloading image…'; $('progress-sub').textContent = '';
+      const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
+      const blob = await apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`, (loaded, total) => {
+        $('progress-sub').textContent = total ? `${Math.round((loaded / total) * 100)}% · ${fmt(loaded)} of ${fmt(total)}` : fmt(loaded);
+      });
       state.resultBlob = blob; state.resultName = imageName;
       const url = URL.createObjectURL(blob);
       $('result-img').src = url; $('result').hidden = false;
       $('result-hint').textContent = navigator.canShare ? '' : 'Tip: press and hold the image, then choose “Add to Photos”.';
       $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setDone(`Done in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
     } catch (err) {
       if (!state.job?.cancelled) $('app-error').textContent = err.message;
+      $('progress').hidden = true;
     } finally {
-      $('progress').hidden = true; state.job = null; updateGenerate();
+      state.job = null; updateGenerate();
     }
+  }
+  // Swap the spinner for a check mark, then tuck the card away.
+  function setDone(text) {
+    $('progress').classList.add('done'); $('progress-text').textContent = text; $('progress-sub').textContent = '';
+    $('btn-cancel').hidden = true;
+    setTimeout(() => { $('progress').hidden = true; $('progress').classList.remove('done'); $('btn-cancel').hidden = false; }, 1800);
   }
 
   // ---------- Graph builders ----------
@@ -515,19 +545,66 @@
   }
 
   // ---------- Gallery ----------
+  const gal = { items: [], selecting: false, selected: new Set() };
   $('btn-gallery').addEventListener('click', openGallery);
-  $('btn-gallery-back').addEventListener('click', () => show('screen-app'));
+  $('btn-gallery-back').addEventListener('click', () => { setSelecting(false); show('screen-app'); });
+  $('btn-gallery-select').addEventListener('click', () => setSelecting(!gal.selecting));
+  $('btn-gallery-delete').addEventListener('click', () => armDelete(true));
+  $('btn-gallery-nevermind').addEventListener('click', () => armDelete(false));
+  $('btn-gallery-confirm').addEventListener('click', deleteSelected);
+
+  function setSelecting(on) {
+    gal.selecting = on; gal.selected.clear(); armDelete(false);
+    $('gallery-grid').classList.toggle('selecting', on);
+    $('gallery-bar').hidden = !on;
+    $('btn-gallery-select').textContent = on ? 'Cancel' : 'Select';
+    $('gallery-grid').querySelectorAll('.tile').forEach((t) => t.classList.remove('selected'));
+    updateGalleryBar();
+  }
+  function updateGalleryBar() {
+    const n = gal.selected.size;
+    $('btn-gallery-delete').disabled = !n; $('btn-gallery-delete').textContent = n ? `Delete ${n}` : 'Delete';
+    $('gallery-count').textContent = n ? `${n} selected` : 'Tap images to select';
+  }
+  function armDelete(on) {
+    $('btn-gallery-confirm').hidden = !on; $('btn-gallery-nevermind').hidden = !on; $('btn-gallery-delete').hidden = on;
+    if (on) $('btn-gallery-confirm').textContent = `Delete ${gal.selected.size} for good`;
+  }
+  async function deleteSelected() {
+    const names = [...gal.selected]; if (!names.length) return;
+    $('btn-gallery-confirm').disabled = true;
+    try {
+      await api('/api/v1/images/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_names: names }) });
+      for (const n of names) {
+        $('gallery-grid').querySelector(`[data-name="${CSS.escape(n)}"]`)?.remove();
+        if (state.resultName === n) { $('result').hidden = true; state.resultBlob = null; state.resultName = ''; }
+      }
+      gal.items = gal.items.filter((it) => !names.includes(it.image_name));
+      toast(`Deleted ${names.length} image${names.length > 1 ? 's' : ''}`);
+      setSelecting(false);
+      if (!gal.items.length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
+    } catch (e) { toast(e.message); armDelete(false); }
+    finally { $('btn-gallery-confirm').disabled = false; }
+  }
   async function openGallery() {
-    show('screen-gallery');
+    show('screen-gallery'); setSelecting(false);
     const grid = $('gallery-grid'); grid.innerHTML = '<p class="meta">Loading…</p>';
     try {
       const j = await api('/api/v1/images/?image_origin=internal&categories=general&is_intermediate=false&limit=50&offset=0');
-      const items = j.items || [];
+      gal.items = j.items || [];
       grid.innerHTML = '';
-      if (!items.length) grid.innerHTML = '<p class="meta">Nothing yet.</p>';
-      for (const it of items) {
+      if (!gal.items.length) grid.innerHTML = '<p class="meta">Nothing yet.</p>';
+      for (const it of gal.items) {
+        const tile = document.createElement('div'); tile.className = 'tile'; tile.dataset.name = it.image_name;
         const img = document.createElement('img'); img.alt = '';
-        img.addEventListener('click', async () => {
+        const check = document.createElement('span'); check.className = 'check'; check.textContent = '✓';
+        tile.append(img, check);
+        tile.addEventListener('click', async () => {
+          if (gal.selecting) {
+            if (gal.selected.has(it.image_name)) gal.selected.delete(it.image_name); else gal.selected.add(it.image_name);
+            tile.classList.toggle('selected', gal.selected.has(it.image_name)); armDelete(false); updateGalleryBar();
+            return;
+          }
           try {
             const blob = await apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/full`);
             state.resultBlob = blob; state.resultName = it.image_name;
@@ -535,7 +612,7 @@
             show('screen-app'); $('result').scrollIntoView();
           } catch (e) { toast(e.message); }
         });
-        grid.appendChild(img);
+        grid.appendChild(tile);
         apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/thumbnail`).then((b) => (img.src = URL.createObjectURL(b))).catch(() => {});
       }
     } catch (e) { grid.innerHTML = `<p class="error">${e.message}</p>`; }

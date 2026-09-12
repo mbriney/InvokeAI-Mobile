@@ -94,6 +94,12 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 #result-img { width: 100%; border-radius: 12px; display: block; background: #000; }
 
 .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.gallery .tile { position: relative; }
 .gallery img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--card-2); display: block; }
+.gallery .tile.selected img { outline: 3px solid var(--accent); outline-offset: -3px; opacity: .75; }
+.gallery .tile .check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; font-size: 14px; color: #fff; }
+.gallery.selecting .tile .check { display: flex; }
+.gallery .tile.selected .check { background: var(--accent); border-color: var(--accent); }
+#btn-gallery-confirm { background: var(--danger); }
 
 .toast { position: fixed; left: 50%; bottom: calc(var(--safe-bottom) + 20px); transform: translateX(-50%); background: #2b2b35; color: #fff; padding: 12px 18px; border-radius: 12px; font-size: 14px; z-index: 50; box-shadow: 0 8px 30px rgba(0,0,0,.5); max-width: 90vw; }

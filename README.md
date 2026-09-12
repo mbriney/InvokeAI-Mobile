@@ -81,5 +81,5 @@ manifest.webmanifest, icon-*.png   PWA / home-screen icon
 
 - FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps are dropped to 4 automatically when a FLUX.2 model is selected (CFG is ignored by Klein). FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
 - SD 1.5 models are sent images with a longest edge of 768.
-- The gallery (🕘) shows the last 50 non-intermediate images on the server.
+- The gallery (🕘) shows the last 50 non-intermediate images on the server. Tap to open one; **Select** → tap images → **Delete** → **Confirm** removes them from the server for good (two taps, no pop-ups).
 - The JWT is stored in `localStorage`; use ⎋ to sign out.

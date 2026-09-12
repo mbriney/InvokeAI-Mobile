@@ -157,11 +157,20 @@
   <section id="screen-gallery" class="screen" hidden>
     <header class="topbar">
       <button class="icon-btn" id="btn-gallery-back">←</button>
-      <span class="brand">Recent</span>
+      <span class="brand" id="gallery-title">Recent</span>
+      <span class="grow"></span>
+      <button class="ghost small" id="btn-gallery-select">Select</button>
     </header>
     <main class="content">
+      <div class="row gap" id="gallery-bar" hidden>
+        <button class="ghost small danger" id="btn-gallery-delete" disabled>Delete</button>
+        <button class="primary small" id="btn-gallery-confirm" hidden>Confirm delete</button>
+        <button class="ghost small" id="btn-gallery-nevermind" hidden>Keep</button>
+        <span class="grow"></span>
+        <span class="meta" id="gallery-count"></span>
+      </div>
       <div class="gallery" id="gallery-grid"></div>
-      <p class="meta center-text">Last 50 images generated on this server.</p>
+      <p class="meta center-text">Last 50 images generated on this server. Tap to open; use Select to delete.</p>
     </main>
   </section>
 

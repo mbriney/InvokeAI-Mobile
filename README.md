@@ -1,7 +1,7 @@
 # Imagine — InvokeAI Mobile
 
 A tiny, iPhone-friendly web app for a hosted [InvokeAI](https://github.com/invoke-ai/InvokeAI) instance.
-Pick a photo → type (or pick) an instruction → generate → save to Photos. Static files only; hosts on GitHub Pages.
+Pick a photo → type an instruction → (optionally switch on LoRAs) → generate → save to Photos. Static files only; hosts on GitHub Pages.
 
 Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). Supports SD 1.5, SDXL, FLUX.1 and FLUX.2 (Klein / Dev) main models.
 
@@ -9,7 +9,7 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
 
 1. **Optional 4-digit code** (set `APP_PIN`) locks the app on the phone. It's a convenience lock, not real security — the real gate is step 2.
 2. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
-3. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. Two modes:
+3. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. The prompt is remembered between sessions. Two modes:
    - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
    - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
 4. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
@@ -59,25 +59,16 @@ python3 -m http.server 8080   # then open http://localhost:8080
 
 (Add `http://localhost:8080` to `allow_origins` on the server for local testing.)
 
-## Presets
+## LoRAs
 
-Stored prompts live in `presets.json`; delete the list to have only *Custom*. Each preset:
+Every LoRA installed on the server whose base matches the selected model is listed under **LoRAs** with an on/off toggle and a weight slider (−1 … 2, default 1). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
 
-```json
-{ "id": "suit", "label": "Business suit", "emoji": "👔",
-  "mode": "edit",                 // "edit" (instruction, FLUX.2) or "restyle" (img2img)
-  "prompt": "Dress him in a navy suit. Keep his face and the background the same.",
-  "negative": "", "strength": 0.6, "steps": 4, "cfg": 7,
-  "model": "optional model name or substring" }
-```
-
-`strength` only matters in Restyle mode. The **Advanced** toggle in the app exposes negative prompt, strength, steps, CFG, model and seed for one-off tweaks.
+Note for FLUX.2 Klein: Invoke can only patch LoRAs onto FP8 / NF4 / 8-bit builds — a GGUF k-quant main model silently ignores them (the same reason the Concepts picker greys out in the Invoke UI).
 
 ## Files
 
 ```
 index.html / styles.css / app.js   the app
-presets.json                       stored prompts & styles
 config.js                          generated — never commit (see .gitignore)
 scripts/build-config.mjs           .env / CI env → config.js
 .github/workflows/deploy.yml       Pages deployment

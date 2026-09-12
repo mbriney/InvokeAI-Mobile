@@ -75,16 +75,10 @@
         </div>
       </div>
 
-      <!-- Step 2: preset -->
-      <div class="card">
-        <div class="card-title">Preset</div>
-        <div class="chips" id="presets"></div>
-      </div>
-
       <!-- Step 3: tweak -->
       <div class="card">
         <div class="card-title row">
-          <span>Prompt</span>
+          <span>What to do</span>
           <span class="grow"></span>
           <button class="ghost small" id="btn-toggle-adv">Advanced</button>
         </div>
@@ -117,6 +111,12 @@
             <input type="number" id="seed" placeholder="random" />
           </label>
         </div>
+      </div>
+
+      <!-- LoRAs -->
+      <div class="card" id="lora-card" hidden>
+        <div class="card-title">LoRAs</div>
+        <div id="loras"></div>
       </div>
 
       <button class="primary big-btn" id="btn-generate" disabled>Generate</button>

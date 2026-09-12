@@ -57,9 +57,15 @@ button { font: inherit; cursor: pointer; }
 .seg { display: flex; background: var(--card-2); border-radius: 12px; padding: 4px; gap: 4px; }
 .seg button { flex: 1; background: transparent; border: none; color: var(--muted); border-radius: 9px; padding: 10px; font-size: 15px; font-weight: 600; }
 .seg button.active { background: var(--accent); color: #fff; }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { background: var(--card-2); border: 2px solid transparent; color: var(--text); border-radius: 999px; padding: 9px 14px; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
-.chip.active { border-color: var(--accent); background: #2a2340; }
+.lora { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid #26262e; }
+.lora:last-child { border-bottom: none; }
+.lora-toggle { display: flex; align-items: center; gap: 10px; background: none; border: none; color: var(--text); padding: 4px 0; font-size: 16px; text-align: left; width: 100%; }
+.lora-toggle .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--muted); flex: none; }
+.lora.on .lora-toggle .dot { background: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 4px var(--card); }
+.lora.on .lora-toggle .name { font-weight: 600; }
+.lora-w { display: flex; align-items: center; gap: 10px; padding-left: 32px; }
+.lora-w input { flex: 1; }
+.lora-w b { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
 
 textarea, input[type=text], input[type=email], input[type=password], input[type=number], select {
   width: 100%; background: var(--card-2); color: var(--text); border: 1px solid #2f2f3a; border-radius: 12px; padding: 12px; font: inherit; font-size: 16px; outline: none; -webkit-appearance: none; appearance: none;

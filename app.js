@@ -1,5 +1,5 @@
 /* Imagine — a tiny iPhone-friendly front end for a hosted InvokeAI instance.
- * Flow: PIN (optional) → Invoke sign-in (JWT, remembered) → pick photo → pick style → generate → save.
+ * Flow: PIN (optional) → Invoke sign-in (JWT, remembered) → pick photo → type an instruction (+ optional LoRAs) → generate → save.
  */
 (() => {
   'use strict';
@@ -28,9 +28,9 @@
   const state = {
     token: LS.get('invoke_token') || '',
     file: null,
-    presets: [],
-    preset: null,
     models: [],
+    loras: [],            // all LoRAs on the server
+    activeLoras: {},      // key -> weight
     subModels: { t5_encoder: [], clip_embed: [], vae: [], qwen3_encoder: [] },
     job: null,      // { itemId, cancelled }
     resultBlob: null,
@@ -135,53 +135,16 @@
   async function enterApp() {
     show('screen-app');
     try {
-      await Promise.all([loadPresets(), loadModels()]);
+      $('prompt').value = LS.get('last_prompt') || '';
+      updateGenerate();
+      await loadModels();
     } catch (err) { $('app-error').textContent = err.message; }
   }
 
-  // ---------- Presets ----------
-  async function loadPresets() {
-    if (state.presets.length) return;
-    const j = await (await fetch('presets.json', { cache: 'no-cache' })).json();
-    state.presets = j.presets || [];
-    const wrap = $('presets'); wrap.innerHTML = '';
-    for (const p of state.presets) {
-      const b = document.createElement('button');
-      b.className = 'chip'; b.dataset.id = p.id;
-      b.innerHTML = `<span>${p.emoji || ''}</span><span>${p.label}</span>`;
-      b.addEventListener('click', () => selectPreset(p.id));
-      wrap.appendChild(b);
-    }
-    const custom = document.createElement('button');
-    custom.className = 'chip'; custom.dataset.id = '__custom';
-    custom.innerHTML = `<span>📝</span><span>Custom</span>`;
-    custom.addEventListener('click', () => selectPreset('__custom'));
-    wrap.appendChild(custom);
-    selectPreset(LS.get('last_preset') || state.presets[0]?.id);
-  }
-  function selectPreset(id) {
-    const p = state.presets.find((x) => x.id === id);
-    state.preset = p || { id: '__custom' };
-    LS.set('last_preset', state.preset.id);
-    $('presets').querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.id === state.preset.id));
-    if (p) {
-      $('prompt').value = p.prompt || '';
-      $('negative').value = p.negative || '';
-      $('strength').value = p.strength ?? 0.65; $('strength-val').textContent = $('strength').value;
-      $('steps').value = p.steps ?? 30;
-      $('cfg').value = p.cfg ?? 7;
-      if (p.model) pickModel(p.model);
-      if (state.models.length) applyModelDefaults();
-      if (p.mode && !$('mode').hidden) { state.mode = p.mode; renderMode(); }
-    } else {
-      if (!$('mode').hidden) { state.mode = 'edit'; renderMode(); }
-      $('prompt').focus();
-    }
-    updateGenerate();
-  }
+  // ---------- Prompt ----------
+  $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
   $('strength').addEventListener('input', () => ($('strength-val').textContent = $('strength').value));
   $('btn-toggle-adv').addEventListener('click', () => { $('advanced').hidden = !$('advanced').hidden; });
-  $('prompt').addEventListener('input', updateGenerate);
 
   // ---------- Models ----------
   async function loadModels() {
@@ -203,6 +166,9 @@
     for (const t of need) {
       try { const r = await api(`/api/v2/models/?model_type=${t}`); state.subModels[t] = r.models || []; } catch {}
     }
+    try { const r = await api('/api/v2/models/?model_type=lora'); state.loras = r.models || []; } catch {}
+    const saved = JSON.parse(LS.get('active_loras') || '{}');
+    for (const l of state.loras) if (l.key in saved) state.activeLoras[l.key] = saved[l.key];
     applyModelDefaults();
   }
   // Distilled FLUX.2 Klein wants few steps and ignores CFG; nudge the fields when such a model is picked.
@@ -213,6 +179,48 @@
     if (m.base !== 'flux2') state.mode = 'restyle';
     else state.mode = LS.get('mode') || 'edit';
     renderMode();
+    renderLoras();
+  }
+
+  // ---------- LoRAs ----------
+  const LORA_NODE = {
+    'sd-1': ['lora_collection_loader', ['unet', 'clip']],
+    'sd-2': ['lora_collection_loader', ['unet', 'clip']],
+    'sdxl': ['sdxl_lora_collection_loader', ['unet', 'clip', 'clip2']],
+    'flux': ['flux_lora_collection_loader', ['transformer', 'clip', 't5_encoder']],
+    'flux2': null, // decided per model: klein vs dev
+  };
+  function lorasForModel(m) {
+    return state.loras.filter((l) => l.base === m.base || l.base === 'any');
+  }
+  function renderLoras() {
+    const m = currentModel(); const card = $('lora-card'); const wrap = $('loras');
+    if (!m) { card.hidden = true; return; }
+    const list = lorasForModel(m);
+    card.hidden = !list.length; wrap.innerHTML = '';
+    for (const l of list) {
+      const on = l.key in state.activeLoras;
+      const row = document.createElement('div'); row.className = 'lora' + (on ? ' on' : '');
+      row.innerHTML = `<button class="lora-toggle"><span class="dot"></span><span class="name">${l.name}</span></button>
+        <div class="lora-w" ${on ? '' : 'hidden'}><input type="range" min="-1" max="2" step="0.05" value="${state.activeLoras[l.key] ?? 1}" /><b>${(state.activeLoras[l.key] ?? 1).toFixed(2)}</b></div>`;
+      const range = row.querySelector('input'); const val = row.querySelector('b');
+      row.querySelector('.lora-toggle').addEventListener('click', () => {
+        if (l.key in state.activeLoras) delete state.activeLoras[l.key]; else state.activeLoras[l.key] = Number(range.value);
+        LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras();
+      });
+      range.addEventListener('input', () => { state.activeLoras[l.key] = Number(range.value); val.textContent = Number(range.value).toFixed(2); LS.set('active_loras', JSON.stringify(state.activeLoras)); });
+      wrap.appendChild(row);
+    }
+  }
+  // Insert a LoRA collection loader between the model loader and everything that consumed `fields` from it.
+  function spliceLoras(graph, loaderId, nodeType, fields) {
+    const m = currentModel();
+    const active = lorasForModel(m).filter((l) => l.key in state.activeLoras);
+    if (!active.length) return;
+    const loraId = `${graph.id}_lora`;
+    graph.nodes[loraId] = { id: loraId, type: nodeType, is_intermediate: true, loras: active.map((l) => ({ lora: idField(l), weight: state.activeLoras[l.key] })) };
+    for (const e of graph.edges) if (e.source.node_id === loaderId && fields.includes(e.source.field)) e.source.node_id = loraId;
+    for (const f of fields) graph.edges.push({ source: { node_id: loaderId, field: f }, destination: { node_id: loraId, field: f } });
   }
 
   // ---------- Mode (Edit = reference-image editing, Restyle = img2img) ----------
@@ -313,7 +321,7 @@
         item = await api(`/api/v1/queue/default/i/${itemId}`);
         const st = item.status;
         if (st === 'pending') { $('progress-text').textContent = 'Waiting in queue…'; }
-        else if (st === 'in_progress') { $('progress-text').textContent = 'Generating…'; $('progress-sub').textContent = `${model.name} · ${steps} steps · ${width}×${height}`; }
+        else if (st === 'in_progress') { $('progress-text').textContent = 'Generating…'; $('progress-sub').textContent = `${model.name} · ${steps} steps · ${width}×${height}` + (Object.keys(state.activeLoras).length ? ` · ${lorasForModel(model).filter((l) => l.key in state.activeLoras).length} LoRA` : ''); }
         if (st === 'completed' || st === 'failed' || st === 'canceled') break;
       }
       if (item.status === 'canceled') { toast('Cancelled'); return; }
@@ -380,7 +388,9 @@
       E(N.denoise, 'latents', N.l2i, 'latents'),
     ];
     if (isXL) edges.push(E(N.loader, 'clip2', N.pos, 'clip2'), E(N.loader, 'clip2', N.neg, 'clip2'));
-    return { graph: { id, nodes, edges }, outputId: N.l2i };
+    const graph = { id, nodes, edges };
+    spliceLoras(graph, N.loader, ...LORA_NODE[isXL ? 'sdxl' : 'sd-1']);
+    return { graph, outputId: N.l2i };
   }
 
   function fluxGraph({ model, imageName, width, height, prompt, strength, steps, cfg, seed }) {
@@ -413,7 +423,9 @@
       E(N.txt, 'conditioning', N.den, 'positive_text_conditioning'),
       E(N.den, 'latents', N.dec, 'latents'),
     ];
-    return { graph: { id, nodes, edges }, outputId: N.dec };
+    const graph = { id, nodes, edges };
+    spliceLoras(graph, N.loader, ...LORA_NODE.flux);
+    return { graph, outputId: N.dec };
   }
 
   // FLUX.2 (Klein / Dev). Mirrors the working Invoke UI setup: standalone FLUX.2 VAE + Qwen3 encoder chosen explicitly.
@@ -460,7 +472,9 @@
       nodes[N.enc] = { id: N.enc, type: 'flux2_vae_encode', is_intermediate: true };
       edges.push(E(N.loader, 'vae', N.enc, 'vae'), E(N.resize, 'image', N.enc, 'image'), E(N.enc, 'latents', N.den, 'latents'));
     }
-    return { graph: { id, nodes, edges }, outputId: N.dec };
+    const graph = { id, nodes, edges };
+    spliceLoras(graph, N.loader, isKlein ? 'flux2_klein_lora_collection_loader' : 'flux2_dev_lora_collection_loader', ['transformer', encField]);
+    return { graph, outputId: N.dec };
   }
 
   // ---------- Save ----------

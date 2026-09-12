@@ -61,6 +61,12 @@ python3 -m http.server 8080   # then open http://localhost:8080
 
 **＋ Save** stores the prompt, mode, negative prompt, strength/steps/CFG, model and active LoRAs (with weights) under a name. Tap a chip to load it (chip shows **✓ loaded**). Change anything and the chip switches to **● edited** with three choices: **Update** (overwrite the preset with what's on screen), **Revert** (reload the preset), or **＋ Save as new**. **Delete** removes it. Presets live in the browser's `localStorage` on that device only — nothing is written to the server or the repo, and they don't sync between phones.
 
+## ✨ Improve with Grok (optional)
+
+Open **⚙ Settings**, paste an xAI API key (console.x.ai), pick a Grok model, Save. A **✨ Improve with Grok** button then appears under the prompt. It sends Grok your rough idea plus the real context — which model family is selected (e.g. FLUX.2 Klein: instruction-style, no CFG), whether you're in Edit or Restyle mode, every LoRA installed for that model with its description and trigger words and which ones are on, and (optionally) a downscaled copy of the photo so it can see what it's describing. Grok returns a rewritten prompt, a negative prompt where the model uses one, a one-line note, and occasionally a LoRA it thinks fits — shown as a tap-to-enable chip. **Use it** replaces your prompt; **Keep mine** discards.
+
+The key lives only in that browser's `localStorage` and is sent only to `api.x.ai` — it is never in the repo, `config.js`, or your Invoke server.
+
 ## LoRAs
 
 Every LoRA installed on the server whose base matches the selected model is listed under **LoRAs** with an on/off toggle and a weight slider (−1 … 2, default 0.75). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.

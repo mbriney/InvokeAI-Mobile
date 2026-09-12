@@ -37,6 +37,7 @@
       <span class="brand" id="app-title">Imagine</span>
       <span class="grow"></span>
       <button class="icon-btn" id="btn-gallery" title="Recent">🕘</button>
+      <button class="icon-btn" id="btn-settings" title="Settings">⚙</button>
       <button class="icon-btn" id="btn-signout" title="Sign out">⎋</button>
     </header>
 
@@ -95,6 +96,21 @@
         </div>
         <p class="meta" id="mode-hint"></p>
         <textarea id="prompt" rows="3" placeholder="What should change? e.g. Put him in a navy suit"></textarea>
+        <div class="row" id="improve-row" hidden>
+          <button class="ghost small" id="btn-improve">✨ Improve with Grok</button>
+          <span class="meta" id="improve-status"></span>
+        </div>
+        <div class="suggest" id="suggest" hidden>
+          <div class="card-title">Grok suggests</div>
+          <p id="suggest-prompt"></p>
+          <p class="meta" id="suggest-notes"></p>
+          <div class="chips" id="suggest-loras"></div>
+          <div class="row gap">
+            <button class="primary small" id="btn-suggest-use">Use it</button>
+            <button class="ghost small" id="btn-suggest-retry">Try again</button>
+            <button class="ghost small" id="btn-suggest-dismiss">Keep mine</button>
+          </div>
+        </div>
 
         <div id="advanced" hidden>
           <label class="field">
@@ -146,6 +162,29 @@
       </div>
 
       <p class="error" id="app-error"></p>
+    </main>
+  </section>
+
+  <!-- Settings -->
+  <section id="screen-settings" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn" id="btn-settings-back">←</button>
+      <span class="brand">Settings</span>
+    </header>
+    <main class="content">
+      <div class="card">
+        <div class="card-title">Prompt help (xAI / Grok)</div>
+        <p class="meta">Paste an xAI API key to enable “✨ Improve with Grok”. The key is stored only in this browser and sent only to api.x.ai. Get one at console.x.ai.</p>
+        <label class="field"><span>xAI API key</span><input type="password" id="xai-key" placeholder="xai-…" autocomplete="off" /></label>
+        <label class="field"><span>Grok model</span><select id="xai-model"><option value="">— enter a key first —</option></select></label>
+        <label class="row"><input type="checkbox" id="xai-vision" checked /> <span>Send the photo too, so Grok can see what it's describing</span></label>
+        <div class="row gap">
+          <button class="primary small" id="btn-xai-save">Save</button>
+          <button class="ghost small" id="btn-xai-test">Test</button>
+          <button class="ghost small danger" id="btn-xai-clear">Remove key</button>
+        </div>
+        <p class="meta" id="xai-status"></p>
+      </div>
     </main>
   </section>
 

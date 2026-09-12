@@ -118,7 +118,7 @@
       $('prompt').value = LS.get('last_prompt') || '';
       updateGenerate();
       await loadModels();
-      renderSaved();
+      renderSaved(); renderImproveRow();
     } catch (err) { $('app-error').textContent = err.message; }
   }
 
@@ -196,6 +196,112 @@
     const list = savedList(); const p = list.find((x) => x.id === currentSavedId); if (!p) return;
     savedWrite(list.filter((x) => x.id !== currentSavedId)); currentSavedId = null; renderSaved(); toast(`Deleted “${p.name}”`);
   });
+
+  // ---------- Settings / xAI ----------
+  const xai = { key: LS.get('xai_key') || '', model: LS.get('xai_model') || '', vision: LS.get('xai_vision') !== '0' };
+  $('btn-settings').addEventListener('click', () => { show('screen-settings'); $('xai-key').value = xai.key; $('xai-vision').checked = xai.vision; $('xai-status').textContent = ''; if (xai.key) loadXaiModels(); });
+  $('btn-settings-back').addEventListener('click', () => { show('screen-app'); renderImproveRow(); });
+  $('xai-key').addEventListener('change', () => loadXaiModels($('xai-key').value.trim()));
+  $('btn-xai-save').addEventListener('click', () => {
+    xai.key = $('xai-key').value.trim(); xai.model = $('xai-model').value; xai.vision = $('xai-vision').checked;
+    LS.set('xai_key', xai.key); LS.set('xai_model', xai.model); LS.set('xai_vision', xai.vision ? '1' : '0');
+    $('xai-status').textContent = xai.key ? `Saved · using ${xai.model || 'default model'}` : 'No key — Improve is off.'; renderImproveRow();
+  });
+  $('btn-xai-clear').addEventListener('click', () => { xai.key = ''; xai.model = ''; LS.del('xai_key'); LS.del('xai_model'); $('xai-key').value = ''; $('xai-model').innerHTML = '<option value="">— enter a key first —</option>'; $('xai-status').textContent = 'Key removed.'; renderImproveRow(); });
+  $('btn-xai-test').addEventListener('click', async () => {
+    $('xai-status').textContent = 'Testing…';
+    try { const r = await grokChat([{ role: 'user', content: 'Reply with the single word OK.' }], { key: $('xai-key').value.trim(), model: $('xai-model').value, maxTokens: 5 }); $('xai-status').textContent = `Works · replied “${r.trim()}”`; }
+    catch (e) { $('xai-status').textContent = e.message; }
+  });
+  async function loadXaiModels(key = xai.key) {
+    if (!key) return;
+    const sel = $('xai-model'); sel.innerHTML = '<option value="">loading…</option>';
+    try {
+      const res = await fetch('https://api.x.ai/v1/models', { headers: { Authorization: `Bearer ${key}` } });
+      if (!res.ok) throw new Error(`xAI ${res.status}: ${(await res.text()).slice(0, 120)}`);
+      const ids = ((await res.json()).data || []).map((m) => m.id).filter((id) => /grok/i.test(id) && !/image|imagine|video|tts|stt|embed/i.test(id)).sort();
+      sel.innerHTML = '';
+      for (const id of ids) { const o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o); }
+      const pref = ids.find((i) => i === xai.model) || ids.find((i) => /grok-4-fast/.test(i) && !/reasoning/.test(i)) || ids.find((i) => /grok-4/.test(i)) || ids[0] || '';
+      sel.value = pref; $('xai-status').textContent = ids.length ? `${ids.length} models available` : 'No chat models found for this key.';
+    } catch (e) { sel.innerHTML = '<option value="">— could not load —</option>'; $('xai-status').textContent = e.message; }
+  }
+  async function grokChat(messages, { key = xai.key, model = xai.model, maxTokens = 600, json = false } = {}) {
+    if (!key) throw new Error('No xAI key — add one in ⚙ Settings.');
+    const body = { model: model || 'grok-4-fast', messages, max_tokens: maxTokens, temperature: 0.7 };
+    if (json) body.response_format = { type: 'json_object' };
+    const res = await fetch('https://api.x.ai/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
+    if (!res.ok) { let t = await res.text(); try { t = JSON.parse(t).error || t; } catch {} throw new Error(`xAI ${res.status}: ${String(t).slice(0, 200)}`); }
+    const j = await res.json();
+    return j.choices?.[0]?.message?.content || '';
+  }
+  function renderImproveRow() { $('improve-row').hidden = !xai.key; }
+
+  // ---------- Improve prompt with Grok ----------
+  let lastSuggestion = null;
+  $('btn-improve').addEventListener('click', improvePrompt);
+  $('btn-suggest-retry').addEventListener('click', improvePrompt);
+  $('btn-suggest-dismiss').addEventListener('click', () => { $('suggest').hidden = true; });
+  $('btn-suggest-use').addEventListener('click', () => {
+    if (!lastSuggestion) return;
+    $('prompt').value = lastSuggestion.prompt; LS.set('last_prompt', $('prompt').value);
+    if (lastSuggestion.negative && state.mode !== 'edit') $('negative').value = lastSuggestion.negative;
+    $('suggest').hidden = true; updateGenerate(); renderSaved(); toast('Prompt updated');
+  });
+
+  async function photoDataUrl(maxEdge = 768) {
+    if (!state.file) return null;
+    const bmp = await createImageBitmap(state.file);
+    const s = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * s); cv.height = Math.round(bmp.height * s);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.85);
+  }
+  function loraContext(m) {
+    const all = lorasForModel(m);
+    const line = (l) => `- "${l.name}"${l.key in state.activeLoras ? ` (ENABLED, weight ${state.activeLoras[l.key]})` : ' (available, off)'}${l.description ? ` — ${l.description}` : ''}${l.trigger_phrases?.length ? ` — trigger words: ${l.trigger_phrases.join(', ')}` : ''}`;
+    return all.length ? all.map(line).join('\n') : '(none installed for this model)';
+  }
+  async function improvePrompt() {
+    const m = currentModel(); if (!m) return;
+    const rough = $('prompt').value.trim();
+    if (!rough) { toast('Type a rough idea first'); return; }
+    const edit = state.mode === 'edit';
+    const family = m.base === 'flux2' ? (/dev/i.test(m.name) ? 'FLUX.2 Dev' : 'FLUX.2 Klein (distilled, ~4 steps, no CFG/negative prompt)') : m.base === 'flux' ? 'FLUX.1' : m.base === 'sdxl' ? 'Stable Diffusion XL' : 'Stable Diffusion 1.5';
+    const guide = edit
+      ? `MODE: reference-image EDIT. The user's photo is passed to the model as a reference and the prompt is an instruction describing the change. Write one clear instruction in plain English (1–3 sentences, under 80 words): say exactly what to change, be concrete about materials/colors/lighting, and explicitly say what must stay the same (face, identity, pose, expression, background, framing) unless the user wants those changed. No tag lists, no quality boilerplate, no negative prompt.`
+      : m.base.startsWith('sd')
+        ? `MODE: image-to-image RESTYLE with ${family}. Write a comma-separated descriptive prompt (subject, style, medium, lighting, composition, quality terms) under 75 tokens, and a short negative prompt.`
+        : `MODE: image-to-image RESTYLE with ${family}. Write a vivid natural-language description of the finished image (1–3 sentences, under 90 words): subject, style, lighting, mood. No negative prompt needed.`;
+    const sys = `You are a prompt engineer for InvokeAI. Turn the user's rough idea into a prompt that this exact setup will follow well.
+MODEL: ${m.name} — ${family}.
+${guide}
+LoRAs on the server for this model (ENABLED ones are active in this generation; include their trigger words naturally in the prompt if they are relevant; you may recommend enabling an available one only if it clearly fits the idea):
+${loraContext(m)}
+${xai.vision && state.file ? 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.' : ''}
+Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "enable_loras": [exact LoRA names to enable, usually empty], "notes": one short sentence for the user}.`;
+    const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
+    $('improve-status').textContent = 'Asking Grok…'; $('btn-improve').disabled = true;
+    try {
+      if (xai.vision && state.file) { try { userContent.push({ type: 'image_url', image_url: { url: await photoDataUrl(), detail: 'low' } }); } catch {} }
+      let text = await grokChat([{ role: 'system', content: sys }, { role: 'user', content: userContent }], { json: true });
+      text = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+      let out; try { out = JSON.parse(text); } catch { out = { prompt: text, negative: '', enable_loras: [], notes: '' }; }
+      if (!out.prompt) throw new Error('Grok returned no prompt.');
+      lastSuggestion = out;
+      $('suggest-prompt').textContent = out.prompt;
+      $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : ''].filter(Boolean).join(' · ');
+      const chips = $('suggest-loras'); chips.innerHTML = '';
+      for (const name of out.enable_loras || []) {
+        const l = lorasForModel(m).find((x) => x.name === name); if (!l || l.key in state.activeLoras) continue;
+        const b = document.createElement('button'); b.className = 'chip'; b.textContent = `＋ enable “${l.name}”`;
+        b.addEventListener('click', () => { state.activeLoras[l.key] = 0.75; LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); renderSaved(); b.remove(); toast(`Enabled ${l.name}`); });
+        chips.appendChild(b);
+      }
+      $('suggest').hidden = false; $('improve-status').textContent = '';
+    } catch (e) { $('improve-status').textContent = e.message; }
+    finally { $('btn-improve').disabled = false; }
+  }
 
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });

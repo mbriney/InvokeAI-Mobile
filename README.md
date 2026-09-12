@@ -1,15 +1,17 @@
 # Imagine — InvokeAI Mobile
 
 A tiny, iPhone-friendly web app for a hosted [InvokeAI](https://github.com/invoke-ai/InvokeAI) instance.
-Pick a photo → pick a style → generate → save to Photos. Static files only; hosts on GitHub Pages.
+Pick a photo → type (or pick) an instruction → generate → save to Photos. Static files only; hosts on GitHub Pages.
 
-Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). Supports SD 1.5, SDXL and FLUX main models.
+Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). Supports SD 1.5, SDXL, FLUX.1 and FLUX.2 (Klein / Dev) main models.
 
 ## How it works
 
 1. **Optional 4-digit code** (set `APP_PIN`) locks the app on the phone. It's a convenience lock, not real security — the real gate is step 2.
 2. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
-3. The photo is uploaded to Invoke, an image-to-image graph is queued with the preset's prompt/strength/steps, the queue item is polled, and the finished image is fetched and shown.
+3. The photo is uploaded to Invoke and a graph is queued, the queue item is polled, and the finished image is fetched and shown. Two modes:
+   - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
+   - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
 4. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
 
 Add it to your Home Screen (Share → *Add to Home Screen*) and it runs full-screen like an app.
@@ -59,16 +61,17 @@ python3 -m http.server 8080   # then open http://localhost:8080
 
 ## Presets
 
-Edit `presets.json`. Each preset:
+Stored prompts live in `presets.json`; delete the list to have only *Custom*. Each preset:
 
 ```json
-{ "id": "watercolor", "label": "Watercolor", "emoji": "🎨",
-  "prompt": "...", "negative": "...",
-  "strength": 0.6, "steps": 30, "cfg": 6.5,
+{ "id": "suit", "label": "Business suit", "emoji": "👔",
+  "mode": "edit",                 // "edit" (instruction, FLUX.2) or "restyle" (img2img)
+  "prompt": "Dress him in a navy suit. Keep his face and the background the same.",
+  "negative": "", "strength": 0.6, "steps": 4, "cfg": 7,
   "model": "optional model name or substring" }
 ```
 
-`strength` is how far the result may drift from the photo (0.1 = subtle touch-up, 1.0 = ignores the photo). The **Advanced** toggle in the app exposes negative prompt, strength, steps, CFG, model and seed for one-off tweaks.
+`strength` only matters in Restyle mode. The **Advanced** toggle in the app exposes negative prompt, strength, steps, CFG, model and seed for one-off tweaks.
 
 ## Files
 
@@ -83,7 +86,7 @@ manifest.webmanifest, icon-*.png   PWA / home-screen icon
 
 ## Notes & limits
 
-- FLUX presets use the first T5 encoder / CLIP embed / FLUX VAE found on the server. Schnell models are capped at 8 steps.
+- FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps are dropped to 4 automatically when a FLUX.2 model is selected (CFG is ignored by Klein). FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
 - SD 1.5 models are sent images with a longest edge of 768.
 - The gallery (🕘) shows the last 50 non-intermediate images on the server.
 - The JWT is stored in `localStorage`; use ⎋ to sign out.

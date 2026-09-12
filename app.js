@@ -172,7 +172,9 @@
       $('cfg').value = p.cfg ?? 7;
       if (p.model) pickModel(p.model);
       if (state.models.length) applyModelDefaults();
+      if (p.mode && !$('mode').hidden) { state.mode = p.mode; renderMode(); }
     } else {
+      if (!$('mode').hidden) { state.mode = 'edit'; renderMode(); }
       $('prompt').focus();
     }
     updateGenerate();
@@ -207,7 +209,27 @@
   function applyModelDefaults() {
     const m = currentModel(); if (!m) return;
     if (m.base === 'flux2' && Number($('steps').value) > 12) $('steps').value = 4;
+    $('mode').hidden = m.base !== 'flux2';        // only FLUX.2 can do reference-image editing
+    if (m.base !== 'flux2') state.mode = 'restyle';
+    else state.mode = LS.get('mode') || 'edit';
+    renderMode();
   }
+
+  // ---------- Mode (Edit = reference-image editing, Restyle = img2img) ----------
+  state.mode = 'edit';
+  const MODE_HINT = {
+    edit: 'Keeps the person and scene; tell it what to change. e.g. “Put him in a navy suit.”',
+    restyle: 'Re-draws the whole photo in a new look. Strength controls how far it drifts.',
+  };
+  function renderMode() {
+    $('mode').querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.mode === state.mode));
+    $('mode-hint').textContent = $('mode').hidden ? '' : MODE_HINT[state.mode];
+    $('strength-field').hidden = state.mode === 'edit';
+  }
+  $('mode').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    state.mode = b.dataset.mode; LS.set('mode', state.mode); renderMode();
+  });
   function pickModel(hint) {
     const sel = $('model'); if (!hint) return;
     const h = hint.toLowerCase();
@@ -407,14 +429,14 @@
       if (!q) throw new Error('FLUX.2 Klein needs a Qwen3 text encoder installed on the server.');
       loader.qwen3_encoder_model = idField(q);
     }
+    const edit = state.mode === 'edit';
     const nodes = {
       [N.loader]: loader,
       [N.txt]: { id: N.txt, type: isKlein ? 'flux2_klein_text_encoder' : 'flux2_dev_text_encoder', prompt, is_intermediate: true },
       [N.resize]: { id: N.resize, type: 'img_resize', image: { image_name: imageName }, width, height, resample_mode: 'lanczos', is_intermediate: true },
-      [N.enc]: { id: N.enc, type: 'flux2_vae_encode', is_intermediate: true },
       [N.den]: {
         id: N.den, type: 'flux2_denoise', num_steps: steps, cfg_scale: 1, scheduler: 'euler',
-        denoising_start: Math.max(0, Math.min(1, 1 - strength)), denoising_end: 1, add_noise: true, width, height, seed, is_intermediate: true,
+        denoising_start: edit ? 0 : Math.max(0, Math.min(1, 1 - strength)), denoising_end: 1, add_noise: true, width, height, seed, is_intermediate: true,
       },
       [N.dec]: { id: N.dec, type: 'flux2_vae_decode', is_intermediate: false, use_cache: false },
     };
@@ -424,12 +446,20 @@
       E(N.loader, encField, N.txt, encField),
       E(N.loader, 'max_seq_len', N.txt, 'max_seq_len'),
       E(N.loader, 'transformer', N.den, 'transformer'),
-      E(N.loader, 'vae', N.enc, 'vae'), E(N.loader, 'vae', N.den, 'vae'), E(N.loader, 'vae', N.dec, 'vae'),
-      E(N.resize, 'image', N.enc, 'image'),
-      E(N.enc, 'latents', N.den, 'latents'),
+      E(N.loader, 'vae', N.den, 'vae'), E(N.loader, 'vae', N.dec, 'vae'),
       E(N.txt, 'conditioning', N.den, 'positive_text_conditioning'),
       E(N.den, 'latents', N.dec, 'latents'),
     ];
+    if (edit) {
+      // Reference-image editing: photo goes in as Kontext conditioning, generation starts from pure noise.
+      N.ref = `${id}_ref`;
+      nodes[N.ref] = { id: N.ref, type: 'flux_kontext', is_intermediate: true };
+      edges.push(E(N.resize, 'image', N.ref, 'image'), E(N.ref, 'kontext_cond', N.den, 'kontext_conditioning'));
+    } else {
+      // Classic img2img: encode the photo, re-noise it to (1 - strength) and denoise.
+      nodes[N.enc] = { id: N.enc, type: 'flux2_vae_encode', is_intermediate: true };
+      edges.push(E(N.loader, 'vae', N.enc, 'vae'), E(N.resize, 'image', N.enc, 'image'), E(N.enc, 'latents', N.den, 'latents'));
+    }
     return { graph: { id, nodes, edges }, outputId: N.dec };
   }
 

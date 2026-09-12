@@ -77,7 +77,7 @@
 
       <!-- Step 2: preset -->
       <div class="card">
-        <div class="card-title">Style</div>
+        <div class="card-title">Preset</div>
         <div class="chips" id="presets"></div>
       </div>
 
@@ -88,14 +88,19 @@
           <span class="grow"></span>
           <button class="ghost small" id="btn-toggle-adv">Advanced</button>
         </div>
-        <textarea id="prompt" rows="3" placeholder="Describe the look…"></textarea>
+        <div class="seg" id="mode" hidden>
+          <button data-mode="edit" class="active">✂️ Edit photo</button>
+          <button data-mode="restyle">🎨 Restyle</button>
+        </div>
+        <p class="meta" id="mode-hint"></p>
+        <textarea id="prompt" rows="3" placeholder="What should change? e.g. Put him in a navy suit"></textarea>
 
         <div id="advanced" hidden>
           <label class="field">
             <span>Negative prompt</span>
             <textarea id="negative" rows="2"></textarea>
           </label>
-          <label class="field">
+          <label class="field" id="strength-field">
             <span>Strength <b id="strength-val">0.65</b> <small>(how much to change the photo)</small></span>
             <input type="range" id="strength" min="0.1" max="1" step="0.05" value="0.65" />
           </label>

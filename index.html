@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Imagine</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Imagine" />
+  <meta name="theme-color" content="#0f0f12" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- PIN gate -->
+  <section id="screen-pin" class="screen" hidden>
+    <div class="center">
+      <div class="logo">✦</div>
+      <h1 id="pin-title">Enter code</h1>
+      <div class="pin-dots" id="pin-dots"><i></i><i></i><i></i><i></i></div>
+      <p class="error" id="pin-error"></p>
+      <div class="keypad" id="keypad">
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <span></span><button data-k="0">0</button><button data-k="del" class="muted">⌫</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Invoke login -->
+  <section id="screen-login" class="screen" hidden>
+    <div class="center narrow">
+      <div class="logo">✦</div>
+      <h1>Sign in to Invoke</h1>
+      <p class="sub" id="login-host"></p>
+      <form id="login-form">
+        <input type="email" id="login-email" placeholder="Email" autocomplete="username" required />
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
+        <p class="error" id="login-error"></p>
+        <button type="submit" class="primary" id="login-btn">Sign in</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Main app -->
+  <section id="screen-app" class="screen" hidden>
+    <header class="topbar">
+      <span class="brand" id="app-title">Imagine</span>
+      <span class="grow"></span>
+      <button class="icon-btn" id="btn-gallery" title="Recent">🕘</button>
+      <button class="icon-btn" id="btn-signout" title="Sign out">⎋</button>
+    </header>
+
+    <main class="content">
+
+      <!-- Step 1: photo -->
+      <div class="card">
+        <label class="drop" id="drop" for="file-input">
+          <img id="preview" alt="" hidden />
+          <div class="drop-empty" id="drop-empty">
+            <div class="big">📷</div>
+            <div>Tap to choose a photo</div>
+          </div>
+        </label>
+        <input type="file" id="file-input" accept="image/*" hidden />
+        <div class="row" id="photo-actions" hidden>
+          <button class="ghost small" id="btn-change-photo">Change photo</button>
+          <span class="grow"></span>
+          <span class="meta" id="photo-meta"></span>
+        </div>
+      </div>
+
+      <!-- Step 2: preset -->
+      <div class="card">
+        <div class="card-title">Style</div>
+        <div class="chips" id="presets"></div>
+      </div>
+
+      <!-- Step 3: tweak -->
+      <div class="card">
+        <div class="card-title row">
+          <span>Prompt</span>
+          <span class="grow"></span>
+          <button class="ghost small" id="btn-toggle-adv">Advanced</button>
+        </div>
+        <textarea id="prompt" rows="3" placeholder="Describe the look…"></textarea>
+
+        <div id="advanced" hidden>
+          <label class="field">
+            <span>Negative prompt</span>
+            <textarea id="negative" rows="2"></textarea>
+          </label>
+          <label class="field">
+            <span>Strength <b id="strength-val">0.65</b> <small>(how much to change the photo)</small></span>
+            <input type="range" id="strength" min="0.1" max="1" step="0.05" value="0.65" />
+          </label>
+          <div class="grid2">
+            <label class="field"><span>Steps</span><input type="number" id="steps" min="1" max="100" value="30" /></label>
+            <label class="field"><span>CFG / Guidance</span><input type="number" id="cfg" min="0" max="30" step="0.5" value="7" /></label>
+          </div>
+          <label class="field">
+            <span>Model</span>
+            <select id="model"></select>
+          </label>
+          <label class="field">
+            <span>Seed <small>(blank = random)</small></span>
+            <input type="number" id="seed" placeholder="random" />
+          </label>
+        </div>
+      </div>
+
+      <button class="primary big-btn" id="btn-generate" disabled>Generate</button>
+
+      <!-- Progress -->
+      <div class="card" id="progress" hidden>
+        <div class="row">
+          <div class="spinner"></div>
+          <div class="grow">
+            <div id="progress-text">Uploading…</div>
+            <div class="meta" id="progress-sub"></div>
+          </div>
+          <button class="ghost small" id="btn-cancel">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="card" id="result" hidden>
+        <img id="result-img" alt="Generated image" />
+        <div class="row gap">
+          <button class="primary grow" id="btn-save">Save to Photos</button>
+          <button class="ghost" id="btn-again">Again ↻</button>
+        </div>
+        <p class="meta" id="result-hint"></p>
+      </div>
+
+      <p class="error" id="app-error"></p>
+    </main>
+  </section>
+
+  <!-- Recent results drawer -->
+  <section id="screen-gallery" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn" id="btn-gallery-back">←</button>
+      <span class="brand">Recent</span>
+    </header>
+    <main class="content">
+      <div class="gallery" id="gallery-grid"></div>
+      <p class="meta center-text">Last 50 images generated on this server.</p>
+    </main>
+  </section>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

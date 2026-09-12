@@ -1,0 +1,95 @@
+{
+  "_comment": "Edit freely. strength = how much the photo changes (0.1 subtle → 1.0 ignore photo). Omit 'model' to use DEFAULT_MODEL from config; set it to a model name (or part of one) to pin a preset to a model.",
+  "presets": [
+    {
+      "id": "watercolor",
+      "label": "Watercolor",
+      "emoji": "🎨",
+      "prompt": "loose watercolor painting, soft wet-on-wet washes, visible paper texture, delicate ink linework, pastel palette, airy and bright",
+      "negative": "photo, photorealistic, 3d render, harsh shadows, text, watermark, blurry",
+      "strength": 0.6,
+      "steps": 30,
+      "cfg": 6.5
+    },
+    {
+      "id": "oil",
+      "label": "Oil painting",
+      "emoji": "🖼️",
+      "prompt": "classical oil painting, thick impasto brushstrokes, rich warm tones, dramatic chiaroscuro lighting, museum quality, canvas texture",
+      "negative": "photo, cartoon, anime, text, watermark, low quality",
+      "strength": 0.62,
+      "steps": 30,
+      "cfg": 7
+    },
+    {
+      "id": "anime",
+      "label": "Anime",
+      "emoji": "✨",
+      "prompt": "anime illustration, clean cel shading, vibrant colors, detailed background, studio quality key visual",
+      "negative": "photo, realistic, 3d, deformed, extra limbs, text, watermark",
+      "strength": 0.7,
+      "steps": 28,
+      "cfg": 7
+    },
+    {
+      "id": "cyberpunk",
+      "label": "Cyberpunk",
+      "emoji": "🌆",
+      "prompt": "cyberpunk scene, neon pink and cyan lighting, rain-slick streets, holographic signage, cinematic, high contrast, volumetric fog",
+      "negative": "daylight, washed out, text, watermark, low quality",
+      "strength": 0.65,
+      "steps": 30,
+      "cfg": 7
+    },
+    {
+      "id": "film",
+      "label": "Vintage film",
+      "emoji": "📽️",
+      "prompt": "1970s kodachrome film photograph, warm faded tones, light grain, soft vignette, nostalgic, natural light",
+      "negative": "digital, oversharpened, hdr, text, watermark",
+      "strength": 0.4,
+      "steps": 25,
+      "cfg": 5.5
+    },
+    {
+      "id": "sketch",
+      "label": "Pencil sketch",
+      "emoji": "✏️",
+      "prompt": "detailed graphite pencil sketch, cross-hatching, on textured white paper, monochrome, hand drawn",
+      "negative": "color, photo, painting, text, watermark",
+      "strength": 0.7,
+      "steps": 28,
+      "cfg": 7
+    },
+    {
+      "id": "popart",
+      "label": "Pop art",
+      "emoji": "💥",
+      "prompt": "pop art poster, bold flat colors, halftone dots, thick black outlines, screen print style, high saturation",
+      "negative": "photo, realistic, gradient, blurry, text, watermark",
+      "strength": 0.7,
+      "steps": 28,
+      "cfg": 7.5
+    },
+    {
+      "id": "clay",
+      "label": "Claymation",
+      "emoji": "🧸",
+      "prompt": "stop-motion claymation, handmade plasticine figures, fingerprints in clay, miniature set, soft studio lighting, shallow depth of field",
+      "negative": "photo, realistic skin, text, watermark, blurry",
+      "strength": 0.72,
+      "steps": 30,
+      "cfg": 7
+    },
+    {
+      "id": "enhance",
+      "label": "Enhance",
+      "emoji": "🔆",
+      "prompt": "high quality photograph, sharp focus, beautiful natural lighting, professional color grading",
+      "negative": "blurry, noisy, low quality, text, watermark",
+      "strength": 0.25,
+      "steps": 25,
+      "cfg": 5
+    }
+  ]
+}

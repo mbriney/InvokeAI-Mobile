@@ -80,6 +80,10 @@
             <button class="ghost small" id="btn-outfit-prompt" hidden>✍️ Write the outfit prompt for me</button>
           </div>
         </div>
+        <label class="field" id="outfit-strength-field" hidden>
+          <span>Change amount <b id="outfit-strength-val">0.80</b> <small>(lower keeps more of your photo; higher follows the outfit more)</small></span>
+          <input type="range" id="outfit-strength" min="0.5" max="1" step="0.05" value="0.8" />
+        </label>
       </div>
 
       <!-- Saved presets (stored on this device only) -->

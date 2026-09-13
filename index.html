@@ -176,10 +176,11 @@
       <!-- Result -->
       <div class="card" id="result" hidden>
         <div class="zoombox" id="result-zoom"><img id="result-img" alt="Generated image" /></div>
-        <p class="meta center-text">Pinch to zoom · drag to pan · double-tap to reset</p>
+        <p class="meta center-text" id="result-meta">Pinch to zoom · drag to pan · double-tap to reset</p>
         <div class="row gap">
           <button class="primary grow" id="btn-save">Save to Photos</button>
           <button class="ghost" id="btn-again" title="Generate again with a new seed">Again ↻</button>
+          <button class="ghost" id="btn-upscale" title="Upscale 2× with Real-ESRGAN">⬆︎ 2×</button>
           <button class="ghost" id="btn-clear" title="Hide this image (it stays in history)">✕</button>
         </div>
         <p class="meta" id="result-hint"></p>
@@ -244,6 +245,8 @@
     <div class="zoombox viewer-zoom" id="viewer-zoom"><img id="viewer-img" alt="" /></div>
     <div class="viewer-bottom">
       <button class="primary grow" id="btn-viewer-save" disabled>Save to Photos</button>
+      <button class="ghost" id="btn-viewer-upscale" title="Upscale with Real-ESRGAN">⬆︎ 2×</button>
+      <button class="ghost" id="btn-viewer-upscale4" title="Upscale with Real-ESRGAN">⬆︎ 4×</button>
       <button class="ghost danger" id="btn-viewer-delete">Delete</button>
       <button class="ghost danger confirm" id="btn-viewer-confirm" hidden>Delete for good</button>
       <button class="ghost" id="btn-viewer-keep" hidden>Keep</button>

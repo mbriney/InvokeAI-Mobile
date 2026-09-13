@@ -528,6 +528,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
 
   $('btn-generate').addEventListener('click', generate);
   $('btn-again').addEventListener('click', () => { $('seed').value = ''; generate(); });
+  $('btn-upscale').addEventListener('click', () => { if (state.resultName) upscale(state.resultName, 2); });
   $('btn-clear').addEventListener('click', () => {
     // Just hides the result; the image stays on the server and in 🕘. Photo, prompt and settings are untouched.
     if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
@@ -587,6 +588,25 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     }
   }
 
+  // Queue any small graph (e.g. an upscale) through the same poller/queue card.
+  async function enqueueGraph({ graph, outputId, label, detail, onDone }) {
+    const job = { id: uid('j'), itemId: null, prompt: label, model: '', status: 'pending', t0: Date.now(), error: null, imageName: null, outputId, cancelled: false, loras: [], detail, onDone };
+    state.jobs.push(job); renderQueue();
+    try {
+      const enq = await api('/api/v1/queue/default/enqueue_batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batch: { graph, runs: 1, origin: 'imagine-mobile' } }) });
+      job.itemId = enq.item_ids?.[0]; if (job.itemId == null) throw new Error('Server did not return a queue item id.');
+      renderQueue(); runPoller();
+    } catch (err) { job.status = 'failed'; job.error = err.message; renderQueue(); }
+    return job;
+  }
+  // Real-ESRGAN upscale of an image already on the server. Result lands in the gallery like any generation.
+  function upscale(imageName, factor = 2, onDone) {
+    const id = uid('up'); const nid = `${id}_esr`;
+    const graph = { id, nodes: { [nid]: { id: nid, type: 'esrgan', image: { image_name: imageName }, model_name: factor === 4 ? 'RealESRGAN_x4plus.pth' : 'RealESRGAN_x2plus.pth', tile_size: 400, is_intermediate: false, use_cache: false } }, edges: [] };
+    toast(`Upscaling ${factor}×…`);
+    return enqueueGraph({ graph, outputId: nid, label: `Upscale ${factor}×`, detail: `Real-ESRGAN x${factor}`, onDone });
+  }
+
   async function cancelJob(job) {
     job.cancelled = true;
     if (job.itemId != null) { try { await api(`/api/v1/queue/default/i/${job.itemId}/cancel`, { method: 'PUT' }); } catch {} }
@@ -627,6 +647,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
             });
             showResult(blob, imageName);
             job.status = 'done'; job.doneAt = Date.now();
+            try { job.onDone?.(blob, imageName); } catch {}
             setTimeout(() => { state.jobs = state.jobs.filter((j) => j !== job); renderQueue(); }, 2500);
           } catch (e) { job.status = 'failed'; job.error = e.message; }
         }
@@ -640,6 +661,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     resultZoom.reset();
     state.resultBlob = blob; state.resultName = imageName;
     $('result-img').src = URL.createObjectURL(blob); $('result').hidden = false;
+    $('result-img').onload = () => { $('result-meta').textContent = `${$('result-img').naturalWidth}×${$('result-img').naturalHeight} · pinch to zoom · double-tap to reset`; };
     $('result-hint').textContent = navigator.canShare ? '' : 'Tip: press and hold the image, then choose “Add to Photos”.';
   }
 
@@ -917,6 +939,24 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     } catch (e) { toast(e.message); armDelete(false); }
     finally { $('btn-gallery-confirm').disabled = false; }
   }
+  function addGalleryTile(it, prepend) {
+    const grid = $('gallery-grid');
+    if (prepend) { gal.items.unshift(it); grid.querySelector('p.meta')?.remove(); }
+    const tile = document.createElement('div'); tile.className = 'tile'; tile.dataset.name = it.image_name;
+    const img = document.createElement('img'); img.alt = '';
+    const check = document.createElement('span'); check.className = 'check'; check.textContent = '✓';
+    tile.append(img, check);
+    tile.addEventListener('click', async () => {
+      if (gal.selecting) {
+        if (gal.selected.has(it.image_name)) gal.selected.delete(it.image_name); else gal.selected.add(it.image_name);
+        tile.classList.toggle('selected', gal.selected.has(it.image_name)); armDelete(false); updateGalleryBar();
+        return;
+      }
+      openViewer(it.image_name, img.src);
+    });
+    prepend ? grid.prepend(tile) : grid.appendChild(tile);
+    apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/thumbnail`).then((b) => (img.src = URL.createObjectURL(b))).catch(() => {});
+  }
   async function openGallery() {
     show('screen-gallery'); setSelecting(false);
     const grid = $('gallery-grid'); grid.innerHTML = '<p class="meta">Loading…</p>';
@@ -925,22 +965,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       gal.items = j.items || [];
       grid.innerHTML = '';
       if (!gal.items.length) grid.innerHTML = '<p class="meta">Nothing yet.</p>';
-      for (const it of gal.items) {
-        const tile = document.createElement('div'); tile.className = 'tile'; tile.dataset.name = it.image_name;
-        const img = document.createElement('img'); img.alt = '';
-        const check = document.createElement('span'); check.className = 'check'; check.textContent = '✓';
-        tile.append(img, check);
-        tile.addEventListener('click', async () => {
-          if (gal.selecting) {
-            if (gal.selected.has(it.image_name)) gal.selected.delete(it.image_name); else gal.selected.add(it.image_name);
-            tile.classList.toggle('selected', gal.selected.has(it.image_name)); armDelete(false); updateGalleryBar();
-            return;
-          }
-          openViewer(it.image_name, img.src);
-        });
-        grid.appendChild(tile);
-        apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/thumbnail`).then((b) => (img.src = URL.createObjectURL(b))).catch(() => {});
-      }
+      for (const it of gal.items) addGalleryTile(it, false);
     } catch (e) { grid.innerHTML = `<p class="error">${e.message}</p>`; }
   }
 
@@ -961,6 +986,20 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
   $('btn-viewer-close').addEventListener('click', closeViewer);
   $('viewer').addEventListener('click', (e) => { if (e.target === $('viewer')) closeViewer(); });
   $('btn-viewer-save').addEventListener('click', () => { if (viewer.blob) shareBlob(viewer.blob, viewer.name); });
+  const viewerUpscale = (factor) => {
+    const name = viewer.name; if (!name) return;
+    $('btn-viewer-upscale').disabled = $('btn-viewer-upscale4').disabled = true; $('viewer-status').textContent = `Upscaling ${factor}×…`;
+    upscale(name, factor, (blob, newName) => {
+      // add to the front of the gallery grid so it's there when the viewer closes
+      addGalleryTile({ image_name: newName }, true);
+      if (!$('viewer').hidden) { viewer.name = newName; viewer.blob = blob; $('viewer-img').src = URL.createObjectURL(blob); viewerZoom.reset(); $('viewer-status').textContent = `Upscaled ${factor}× ✓`; }
+      $('btn-viewer-upscale').disabled = $('btn-viewer-upscale4').disabled = false;
+    });
+    // re-enable on failure after a bit (the queue card shows the error)
+    setTimeout(() => { if (state.jobs.every((j) => j.status !== 'pending' && j.status !== 'in_progress' && j.status !== 'downloading')) { $('btn-viewer-upscale').disabled = $('btn-viewer-upscale4').disabled = false; } }, 8000);
+  };
+  $('btn-viewer-upscale').addEventListener('click', () => viewerUpscale(2));
+  $('btn-viewer-upscale4').addEventListener('click', () => viewerUpscale(4));
   $('btn-viewer-delete').addEventListener('click', () => viewerArm(true));
   $('btn-viewer-keep').addEventListener('click', () => viewerArm(false));
   $('btn-viewer-confirm').addEventListener('click', async () => {

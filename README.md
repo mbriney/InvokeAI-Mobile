@@ -14,7 +14,8 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
 3. **Paste** works too: ⌘V anywhere on the page, or the 📋 buttons on iPhone (Safari asks once to allow paste). With a FLUX.2 model in Edit mode an **Outfit reference** slot appears — add a photo of someone wearing an outfit (choose or paste) and the person in your photo is shown wearing it. Both photos go to Klein as reference images (yours first) — verified to keep face, pose and background and swap the garments; a ready-made instruction is filled in (tap *Write the outfit prompt for me* to reset it), and ✨ Improve with Grok sees both images and describes the actual garments.
 4. The result (and the full-screen viewer) supports **pinch to zoom, drag to pan, double-tap to reset**; mouse wheel zooms on desktop.
 5. **⬆︎ 2×** on the result card upscales it (queued like a generation). The viewer in 🕘 has 2× and 4×. The model is chosen in ⚙ Settings → Upscaler: any Spandrel upscaler installed on the server (4xNomos8kSC is the default and much sharper on photos), or the built-in Real-ESRGAN.
-6. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
+6. **🛠 Fix it** on a result (needs the xAI key): type what's wrong — "the jacket is brown not charcoal, her hair got shorter" — and Grok gets the exact prompt that ran, the original photo, the result image, and the LoRA set, then returns a revised prompt (plus LoRA weights/steps if it thinks they caused it). **Apply & regenerate** reruns the *original* photo with the fix; **Apply only** just updates the prompt.
+7. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
 
 Add it to your Home Screen (Share → *Add to Home Screen*) and it runs full-screen like an app.
 

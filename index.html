@@ -184,11 +184,35 @@
       <div class="card" id="result" hidden>
         <div class="zoombox" id="result-zoom"><img id="result-img" alt="Generated image" /></div>
         <p class="meta center-text" id="result-meta">Pinch to zoom · drag to pan · double-tap to reset</p>
-        <div class="row gap">
+        <div class="row gap wrap">
           <button class="primary grow" id="btn-save">Save to Photos</button>
           <button class="ghost" id="btn-again" title="Generate again with a new seed">Again ↻</button>
-          <button class="ghost" id="btn-upscale" title="Upscale 2× with Real-ESRGAN">⬆︎ 2×</button>
+          <button class="ghost" id="btn-upscale" title="Upscale">⬆︎ 2×</button>
+          <button class="ghost" id="btn-fix" title="Tell Grok what went wrong" hidden>🛠 Fix it</button>
           <button class="ghost" id="btn-clear" title="Hide this image (it stays in history)">✕</button>
+        </div>
+        <div id="fix-panel" hidden>
+          <label class="field">
+            <span>What went wrong?</span>
+            <textarea id="fix-text" rows="2" placeholder="e.g. the jacket is brown not charcoal, and her hair got shorter"></textarea>
+          </label>
+          <div class="row gap wrap">
+            <button class="primary small" id="btn-fix-ask">✨ Ask Grok to fix it</button>
+            <button class="ghost small" id="btn-fix-cancel">Cancel</button>
+            <span class="meta" id="fix-status"></span>
+          </div>
+          <div class="suggest" id="fix-suggest" hidden>
+            <div class="card-title">Grok's fix</div>
+            <p id="fix-prompt"></p>
+            <p class="meta" id="fix-notes"></p>
+            <div class="chips" id="fix-loras"></div>
+            <div class="row gap wrap">
+              <button class="primary small" id="btn-fix-run">Apply &amp; regenerate</button>
+              <button class="ghost small" id="btn-fix-apply">Apply only</button>
+              <button class="ghost small" id="btn-fix-retry">Try again</button>
+              <button class="ghost small" id="btn-fix-dismiss">Discard</button>
+            </div>
+          </div>
         </div>
         <p class="meta" id="result-hint"></p>
       </div>

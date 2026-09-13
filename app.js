@@ -422,6 +422,78 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     return `${t}${/[.!?]$/.test(t) ? '' : '.'} ${identityClause()}`;
   }
 
+  // ---------- Fix it: critique a result and let Grok rewrite the prompt ----------
+  let lastFix = null;
+  $('btn-fix').addEventListener('click', () => { $('fix-panel').hidden = !$('fix-panel').hidden; if (!$('fix-panel').hidden) $('fix-text').focus(); });
+  $('btn-fix-cancel').addEventListener('click', () => { $('fix-panel').hidden = true; });
+  $('btn-fix-dismiss').addEventListener('click', () => { $('fix-suggest').hidden = true; });
+  $('btn-fix-ask').addEventListener('click', askFix);
+  $('btn-fix-retry').addEventListener('click', askFix);
+  function applyFix() {
+    if (!lastFix) return;
+    $('prompt').value = lastFix.prompt; LS.set('last_prompt', lastFix.prompt);
+    if (lastFix.negative && state.mode !== 'edit') $('negative').value = lastFix.negative;
+    if (lastFix.loras) { state.activeLoras = {}; for (const x of lastFix.loras) state.activeLoras[x.lora.key] = x.weight; LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); }
+    if (lastFix.steps) $('steps').value = lastFix.steps;
+    updateGenerate(); renderSaved();
+  }
+  $('btn-fix-apply').addEventListener('click', () => { applyFix(); $('fix-suggest').hidden = true; $('fix-panel').hidden = true; toast('Prompt updated'); });
+  $('btn-fix-run').addEventListener('click', () => { applyFix(); $('fix-suggest').hidden = true; $('fix-panel').hidden = true; $('seed').value = ''; generate(); toast('Regenerating with the fix'); });
+
+  async function blobDataUrl(blob, maxEdge = 768) {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.85);
+  }
+  async function askFix() {
+    const m = currentModel(); const job = state.resultJob;
+    const feedback = $('fix-text').value.trim();
+    if (!m || !job) return;
+    if (!feedback) { toast('Say what went wrong first'); return; }
+    if (!xai.key) { toast('Add an xAI key in ⚙ Settings first'); return; }
+    $('fix-status').textContent = 'Asking Grok…'; $('btn-fix-ask').disabled = true;
+    try {
+      await refreshLoras();
+      const edit = job.mode === 'edit';
+      const family = m.base === 'flux2' ? (/dev/i.test(m.name) ? 'FLUX.2 Dev' : 'FLUX.2 Klein (distilled, ~4–8 steps, no CFG/negative prompt)') : m.base === 'flux' ? 'FLUX.1' : m.base === 'sdxl' ? 'Stable Diffusion XL' : 'Stable Diffusion 1.5';
+      const usedLoras = (job.loras || []).length ? job.loras.join(', ') : 'none';
+      const sys = `You are a prompt engineer for InvokeAI doing a revision pass. A prompt was run and the result did not satisfy the user. Rewrite the prompt so the next run fixes what they describe while keeping everything that already worked.
+MODEL: ${m.name} — ${family}. MODE: ${edit ? 'reference-image EDIT (the original photo is passed as a reference; the prompt is an instruction; identity, pose and background should be preserved unless asked otherwise)' : 'image-to-image RESTYLE'}.
+PROMPT THAT WAS USED (verbatim, including any likeness clause the app appended): <<<${job.fullPrompt}>>>
+LoRAs that were on for that run: ${usedLoras}.
+LoRAs available for this model (ENABLED = on now):
+${loraContext(m)}
+${keepFace() ? 'LIKENESS LOCK is ON: the app will append its fixed face/hair-preservation clause again — do not repeat it.' : ''}
+Diagnose from the user's complaint and the images: if the model ignored an instruction, make it more explicit and concrete (colors, materials, placement) and put it earlier; if it over-did something, add an explicit constraint; if a LoRA likely caused the problem (e.g. face drift, unwanted style), lower its weight or drop it. Keep the style rules of the model (${edit ? 'plain-English instruction, 1–3 sentences, under 90 words' : 'descriptive prompt'}).
+Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "loras": [{"name": exact name, "weight": number, "why": short}] (the complete set that should be ON next run), "steps": integer or null (only if changing it would help), "notes": one short sentence explaining what you changed}.`;
+      const content = [{ type: 'text', text: `What went wrong: ${feedback}` }];
+      if (xai.vision) {
+        try { content.push({ type: 'text', text: 'ORIGINAL photo:' }, { type: 'image_url', image_url: { url: await photoDataUrl(state.file), detail: 'low' } }); } catch {}
+        if (state.resultBlob) { try { content.push({ type: 'text', text: 'RESULT that was produced:' }, { type: 'image_url', image_url: { url: await blobDataUrl(state.resultBlob), detail: 'low' } }); } catch {} }
+      }
+      let text = await grokChat([{ role: 'system', content: sys }, { role: 'user', content }], { json: true, maxTokens: 700 });
+      text = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+      let out; try { out = JSON.parse(text); } catch { out = { prompt: text, negative: '', loras: [], notes: '' }; }
+      if (!out.prompt) throw new Error('Grok returned no prompt.');
+      // strip the likeness clause if Grok echoed it — the app re-appends it
+      out.prompt = out.prompt.replace(IDENTITY_EDIT, '').replace(IDENTITY_RESTYLE, '').trim();
+      const fits = lorasForModel(m);
+      out.loras = (Array.isArray(out.loras) ? out.loras : []).map((x) => (typeof x === 'string' ? { name: x } : x))
+        .map((x) => ({ ...x, lora: fits.find((l) => l.name === x.name) || fits.find((l) => l.name.toLowerCase() === String(x.name).toLowerCase()) })).filter((x) => x.lora)
+        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || 0.75)) }));
+      out.steps = Number.isInteger(out.steps) && out.steps > 0 ? out.steps : null;
+      lastFix = out;
+      $('fix-prompt').textContent = out.prompt;
+      $('fix-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', out.steps ? `Steps → ${out.steps}` : '', out.loras.length ? `LoRAs → ${out.loras.map((x) => `${x.lora.name} @ ${x.weight.toFixed(2)}`).join(', ')}` : 'LoRAs → none'].filter(Boolean).join(' · ');
+      const chips = $('fix-loras'); chips.innerHTML = '';
+      for (const x of out.loras) { const b = document.createElement('span'); b.className = 'chip active'; b.textContent = `${x.lora.name} @ ${x.weight.toFixed(2)}`; b.title = x.why || ''; chips.appendChild(b); }
+      $('fix-suggest').hidden = false; $('fix-status').textContent = '';
+    } catch (e) { $('fix-status').textContent = e.message; }
+    finally { $('btn-fix-ask').disabled = false; }
+  }
+
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
   $('strength').addEventListener('input', () => ($('strength-val').textContent = $('strength').value));
@@ -633,8 +705,8 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
   $('btn-clear').addEventListener('click', () => {
     // Just hides the result; the image stays on the server and in 🕘. Photo, prompt and settings are untouched.
     if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
-    $('result-img').removeAttribute('src'); $('result').hidden = true;
-    state.resultBlob = null; state.resultName = ''; $('app-error').textContent = '';
+    $('result-img').removeAttribute('src'); $('result').hidden = true; $('fix-panel').hidden = true; $('fix-suggest').hidden = true;
+    state.resultBlob = null; state.resultName = ''; state.resultJob = null; $('app-error').textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
@@ -659,7 +731,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     const file = state.file;
     const outfit = (model.base === 'flux2' && state.mode === 'edit') ? state.outfit : null;
 
-    const job = { id: uid('j'), itemId: null, prompt: shownPrompt + (keepFace() ? ' 🔒' : ''), model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false,
+    const job = { id: uid('j'), itemId: null, prompt: shownPrompt + (keepFace() ? ' 🔒' : ''), fullPrompt: prompt, shownPrompt, negative, mode: state.mode, steps, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false,
       loras: lorasForModel(model).filter((l) => l.key in state.activeLoras).map((l) => l.name) };
     state.jobs.push(job); $('app-error').textContent = ''; renderQueue();
 
@@ -765,7 +837,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
             const blob = await apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`, (loaded, total) => {
               job.dlProgress = total ? `${Math.round((loaded / total) * 100)}%` : fmt(loaded); job.dlPct = total ? Math.round((loaded / total) * 100) : 0; renderQueue();
             });
-            showResult(blob, imageName);
+            showResult(blob, imageName, job);
             job.status = 'done'; job.doneAt = Date.now();
             try { job.onDone?.(blob, imageName); } catch {}
             setTimeout(() => { state.jobs = state.jobs.filter((j) => j !== job); renderQueue(); }, 2500);
@@ -776,9 +848,11 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     } finally { pollerRunning = false; renderQueue(); }
   }
 
-  function showResult(blob, imageName) {
+  function showResult(blob, imageName, job) {
     if ($('result-img').src.startsWith('blob:')) URL.revokeObjectURL($('result-img').src);
     resultZoom.reset();
+    state.resultJob = job || null;
+    $('btn-fix').hidden = !(job && job.fullPrompt && state.file); $('fix-panel').hidden = true; $('fix-suggest').hidden = true;
     state.resultBlob = blob; state.resultName = imageName;
     $('result-img').src = URL.createObjectURL(blob); $('result').hidden = false;
     $('result-img').onload = () => { $('result-meta').textContent = `${$('result-img').naturalWidth}×${$('result-img').naturalHeight} · pinch to zoom · double-tap to reset`; };

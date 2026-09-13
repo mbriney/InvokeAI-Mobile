@@ -247,6 +247,21 @@
   $('btn-improve').addEventListener('click', improvePrompt);
   $('btn-suggest-retry').addEventListener('click', improvePrompt);
   $('btn-suggest-dismiss').addEventListener('click', () => { $('suggest').hidden = true; });
+  function applySuggestedLoras() {
+    if (!lastSuggestion) return 0;
+    state.activeLoras = {};
+    for (const x of lastSuggestion.loras || []) state.activeLoras[x.lora.key] = x.weight;
+    LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); renderSaved();
+    $('suggest-loras').querySelectorAll('.chip').forEach((c) => c.classList.add('active'));
+    return Object.keys(state.activeLoras).length;
+  }
+  $('btn-suggest-use-all').addEventListener('click', () => {
+    if (!lastSuggestion) return;
+    $('prompt').value = lastSuggestion.prompt; LS.set('last_prompt', $('prompt').value);
+    if (lastSuggestion.negative && state.mode !== 'edit') $('negative').value = lastSuggestion.negative;
+    const n = applySuggestedLoras();
+    $('suggest').hidden = true; updateGenerate(); renderSaved(); toast(`Prompt updated · ${n} LoRA${n === 1 ? '' : 's'} on, others off`);
+  });
   $('btn-suggest-use').addEventListener('click', () => {
     if (!lastSuggestion) return;
     $('prompt').value = lastSuggestion.prompt; LS.set('last_prompt', $('prompt').value);
@@ -283,10 +298,11 @@
     const sys = `You are a prompt engineer for InvokeAI. Turn the user's rough idea into a prompt that this exact setup will follow well.
 MODEL: ${m.name} — ${family}.
 ${guide}
-LoRAs on the server for this model (ENABLED ones are active in this generation; include their trigger words naturally in the prompt if they are relevant; you may recommend enabling an available one only if it clearly fits the idea):
+LoRAs on the server for this model (ENABLED ones are currently active; include trigger words naturally in the prompt for every LoRA you recommend; recommend the LoRAs that fit the idea, and leave out the ones that don't — the user can apply your full LoRA set with one tap):
 ${loraContext(m)}
 ${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached in the order the model will see them: IMAGE 1 is the person to keep; IMAGE 2 shows an outfit on someone else. Refer to them literally as "image 1" and "image 2". Say to output a single photo of the person from image 1 wearing the outfit from image 2; describe the garments you actually see in image 2 (type, color, fabric, fit, details); keep face, hair, pose, framing and background from image 1; and do not show the person or background from image 2.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
-Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "enable_loras": [exact LoRA names to enable, usually empty], "notes": one short sentence for the user}.`;
+Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "loras": [{"name": exact LoRA name from the list, "weight": number, "why": very short reason}], "notes": one short sentence for the user}.
+For "loras": list every LoRA from the list that should be ON for this idea, including ones that are currently enabled if they still fit (omit any that don't). For each, pick "weight" from the recommended-usage/strength guidance in its description when present; otherwise use 0.75 for style/concept LoRAs and 0.5–0.6 for subtle detail/realism LoRAs. Weights are 0–1.5.`;
     const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
     $('improve-status').textContent = 'Asking Grok…'; $('btn-improve').disabled = true;
     try {
@@ -300,17 +316,31 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       text = text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
       let out; try { out = JSON.parse(text); } catch { out = { prompt: text, negative: '', enable_loras: [], notes: '' }; }
       if (!out.prompt) throw new Error('Grok returned no prompt.');
+      // Normalise LoRA suggestions: accept {name, weight, why} objects or bare names (older replies).
+      const fits = lorasForModel(m);
+      out.loras = (Array.isArray(out.loras) ? out.loras : Array.isArray(out.enable_loras) ? out.enable_loras : [])
+        .map((x) => (typeof x === 'string' ? { name: x } : x))
+        .map((x) => ({ ...x, lora: fits.find((l) => l.name === x.name) || fits.find((l) => l.name.toLowerCase() === String(x.name).toLowerCase()) }))
+        .filter((x) => x.lora)
+        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || 0.75)) }));
       lastSuggestion = out;
       $('suggest-prompt').textContent = out.prompt;
       const considered = lorasForModel(m); const undocumented = considered.filter((l) => !l.description && !l.trigger_phrases?.length).length;
       $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', `Considered ${considered.length} LoRA${considered.length === 1 ? '' : 's'}` + (undocumented ? ` (${undocumented} with no description/trigger words — add them in Invoke's Model Manager for better picks)` : '')].filter(Boolean).join(' · ');
       const chips = $('suggest-loras'); chips.innerHTML = '';
-      for (const name of out.enable_loras || []) {
-        const l = lorasForModel(m).find((x) => x.name === name); if (!l || l.key in state.activeLoras) continue;
-        const b = document.createElement('button'); b.className = 'chip'; b.textContent = `＋ enable “${l.name}”`;
-        b.addEventListener('click', () => { state.activeLoras[l.key] = 0.75; LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); renderSaved(); b.remove(); toast(`Enabled ${l.name}`); });
-        chips.appendChild(b);
+      for (const x of out.loras) {
+        const b = document.createElement('button'); b.className = 'chip'; b.title = x.why || '';
+        const on = () => x.lora.key in state.activeLoras && Math.abs(state.activeLoras[x.lora.key] - x.weight) < 0.001;
+        const paint = () => { b.classList.toggle('active', on()); b.textContent = `${on() ? '✓' : '＋'} ${x.lora.name} @ ${x.weight.toFixed(2)}`; };
+        b.addEventListener('click', () => {
+          if (on()) delete state.activeLoras[x.lora.key]; else state.activeLoras[x.lora.key] = x.weight;
+          LS.set('active_loras', JSON.stringify(state.activeLoras)); renderLoras(); renderSaved(); paint();
+        });
+        paint(); chips.appendChild(b);
       }
+      $('btn-suggest-use-all').hidden = !out.loras.length;
+      $('btn-suggest-use-all').textContent = out.loras.length ? `Use it + ${out.loras.length} LoRA${out.loras.length > 1 ? 's' : ''}` : '';
+      $('btn-suggest-use').textContent = out.loras.length ? 'Prompt only' : 'Use it';
       $('suggest').hidden = false; $('improve-status').textContent = '';
     } catch (e) { $('improve-status').textContent = e.message; }
     finally { $('btn-improve').disabled = false; }

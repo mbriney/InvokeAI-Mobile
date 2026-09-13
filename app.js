@@ -1134,13 +1134,14 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
       gal.offset = Math.max(0, gal.offset - names.length); // server list shifted up; keep paging aligned
       toast(`Deleted ${names.length} image${names.length > 1 ? 's' : ''}`);
       setSelecting(false);
-      if (!gal.items.length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
+      if (!gal.items.length && !(j.items || []).length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
     } catch (e) { toast(e.message); armDelete(false); }
     finally { $('btn-gallery-confirm').disabled = false; }
   }
   function addGalleryTile(it, prepend) {
     const grid = $('gallery-grid');
     if (prepend) { gal.items.unshift(it); grid.querySelector('p.meta')?.remove(); }
+    else gal.items.push(it);
     const tile = document.createElement('div'); tile.className = 'tile'; tile.dataset.name = it.image_name;
     const img = document.createElement('img'); img.alt = '';
     const check = document.createElement('span'); check.className = 'check'; check.textContent = '✓';
@@ -1168,7 +1169,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
       gal.offset += (j.items || []).length;
       gal.total = j.total ?? gal.total;
       gal.done = (j.items || []).length < GALLERY_PAGE || (gal.total != null && gal.offset >= gal.total);
-      if (!gal.items.length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
+      if (!gal.items.length && !(j.items || []).length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
       $('gallery-more').textContent = gal.done ? (gal.items.length ? `All ${gal.items.length} images` : '') : '';
       $('gallery-more').hidden = gal.done && !gal.items.length;
     } catch (e) { $('gallery-more').textContent = e.message; }

@@ -103,8 +103,37 @@
   });
   $('btn-signout').addEventListener('click', async () => {
     try { await api('/api/v1/auth/logout', { method: 'POST' }); } catch {}
-    state.token = ''; LS.del('invoke_token'); show('screen-login');
+    state.token = ''; LS.del('invoke_token'); disconnectSocket(); show('screen-login');
   });
+
+  // ---------- Live progress (Socket.IO) ----------
+  // Invoke pushes per-step progress over Socket.IO; REST polling remains the fallback and the source of truth for results.
+  let sock = null;
+  function connectSocket() {
+    if (sock || !window.io || !state.token) return;
+    try {
+      sock = window.io(CFG.baseUrl, { path: '/ws/socket.io', auth: { token: state.token }, transports: ['websocket', 'polling'], reconnectionDelayMax: 10000 });
+      sock.on('connect', () => sock.emit('subscribe_queue', { queue_id: 'default' }));
+      sock.on('invocation_progress', (ev) => {
+        const job = state.jobs.find((j) => j.itemId === ev.item_id); if (!job) return;
+        if (job.status === 'pending') job.status = 'in_progress';
+        job.progress = typeof ev.percentage === 'number' ? ev.percentage : null;
+        job.progressMsg = ev.message || '';
+        renderQueue();
+      });
+      sock.on('invocation_complete', (ev) => { const job = state.jobs.find((j) => j.itemId === ev.item_id); if (job && job.progress != null) { job.progress = 1; renderQueue(); } });
+      sock.on('queue_item_status_changed', (ev) => {
+        const job = state.jobs.find((j) => j.itemId === ev.item_id); if (!job) return;
+        if (ev.status === 'in_progress' && job.status === 'pending') { job.status = 'in_progress'; renderQueue(); }
+        if (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'canceled') pokePoller();
+      });
+      sock.on('connect_error', (e) => console.warn('socket', e.message));
+    } catch (e) { console.warn('socket unavailable', e); sock = null; }
+  }
+  function disconnectSocket() { try { sock?.disconnect(); } catch {} sock = null; }
+  let pokeResolve = null; // lets a socket event cut the poller's sleep short
+  const pokePoller = () => { pokeResolve?.(); };
+  const sleepOrPoke = (ms) => new Promise((r) => { pokeResolve = r; setTimeout(r, ms); });
 
   // ---------- Boot ----------
   async function boot() {
@@ -116,7 +145,7 @@
     await enterApp();
   }
   async function enterApp() {
-    show('screen-app');
+    show('screen-app'); connectSocket();
     try {
       $('prompt').value = LS.get('last_prompt') || '';
       updateGenerate();
@@ -710,7 +739,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
       for (;;) {
         const active = state.jobs.filter((j) => j.status === 'pending' || j.status === 'in_progress');
         if (!active.length) break;
-        await sleep(CFG.pollMs);
+        await sleepOrPoke(CFG.pollMs);
         for (const job of active) {
           let item;
           try { item = await api(`/api/v1/queue/default/i/${job.itemId}`); } catch (e) { job.status = 'failed'; job.error = e.message; continue; }
@@ -730,11 +759,11 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
           for (const pid of prepared) if (results[pid]?.image?.image_name) imageName = results[pid].image.image_name;
           if (!imageName) for (const [k, r] of Object.entries(results)) if (r?.image?.image_name && k === job.outputId) imageName = r.image.image_name;
           if (!imageName) { job.status = 'failed'; job.error = 'Finished, but the output image could not be located in the result.'; continue; }
-          job.imageName = imageName; job.status = 'downloading'; job.progress = ''; renderQueue();
+          job.imageName = imageName; job.status = 'downloading'; job.dlProgress = ''; job.dlPct = 0; renderQueue();
           try {
             const fmt = (b) => (b / 1048576).toFixed(1) + ' MB';
             const blob = await apiBlobProgress(`/api/v1/images/i/${encodeURIComponent(imageName)}/full`, (loaded, total) => {
-              job.progress = total ? `${Math.round((loaded / total) * 100)}%` : fmt(loaded); renderQueue();
+              job.dlProgress = total ? `${Math.round((loaded / total) * 100)}%` : fmt(loaded); job.dlPct = total ? Math.round((loaded / total) * 100) : 0; renderQueue();
             });
             showResult(blob, imageName);
             job.status = 'done'; job.doneAt = Date.now();
@@ -765,9 +794,13 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
       const row = document.createElement('div'); row.className = `qrow ${job.status}`;
       const active = ['uploading', 'pending', 'in_progress', 'downloading'].includes(job.status);
       const secs = Math.round(((job.doneAt || Date.now()) - job.t0) / 1000);
-      const sub = job.status === 'failed' ? job.error : job.status === 'downloading' ? `${job.progress || ''} · ${job.detail || ''}` : job.status === 'in_progress' ? `${job.detail || ''} · ${secs}s` : job.status === 'done' ? `${secs}s` : '';
+      const pct = job.status === 'in_progress' && typeof job.progress === 'number' ? Math.round(job.progress * 100) : null;
+      const sub = job.status === 'failed' ? job.error
+        : job.status === 'downloading' ? `${job.dlProgress || ''} · ${job.detail || ''}`
+        : job.status === 'in_progress' ? `${pct != null ? pct + '% · ' : ''}${job.progressMsg ? job.progressMsg + ' · ' : ''}${job.detail || ''} · ${secs}s`
+        : job.status === 'done' ? `${secs}s` : '';
       row.innerHTML = `<span class="qicon">${active ? '<span class="spinner"></span>' : job.status === 'done' ? '✓' : job.status === 'failed' ? '!' : '–'}</span>
-        <div class="grow"><div class="qprompt">${job.prompt.replace(/</g, '&lt;')}</div><div class="meta">${STATUS_LABEL[job.status]}${sub ? ' · ' + sub : ''}</div></div>`;
+        <div class="grow"><div class="qprompt">${job.prompt.replace(/</g, '&lt;')}</div><div class="meta">${STATUS_LABEL[job.status]}${sub ? ' · ' + sub : ''}</div>${active ? `<div class="qbar${pct == null && job.status !== 'downloading' ? ' indeterminate' : ''}"><i style="width:${job.status === 'downloading' ? (job.dlPct || 0) : (pct || 0)}%"></i></div>` : ''}</div>`;
       const btn = document.createElement('button'); btn.className = 'ghost small';
       if (active && job.status !== 'downloading') { btn.textContent = 'Cancel'; btn.addEventListener('click', () => cancelJob(job)); row.appendChild(btn); }
       else if (!active && job.status !== 'done') { btn.textContent = '✕'; btn.addEventListener('click', () => { state.jobs = state.jobs.filter((j) => j !== job); renderQueue(); }); row.appendChild(btn); }

@@ -111,6 +111,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .qicon .spinner { width: 18px; height: 18px; border-width: 2px; }
 .qrow.done .qicon { color: #2ecc71; } .qrow.failed .qicon { color: var(--danger); }
 .qrow.done .qprompt { color: #2ecc71; }
+.qbar { height: 4px; background: #2c2c36; border-radius: 2px; overflow: hidden; margin-top: 6px; }
+.qbar > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
+.qbar.indeterminate > i { width: 30%; animation: slide 1.2s linear infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
 .qprompt { font-size: 15px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 #viewer { position: fixed; inset: 0; z-index: 40; background: #000; display: flex; flex-direction: column; }

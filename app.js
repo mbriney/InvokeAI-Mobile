@@ -271,6 +271,8 @@
     const m = currentModel(); if (!m) return;
     const rough = $('prompt').value.trim();
     if (!rough) { toast('Type a rough idea first'); return; }
+    $('improve-status').textContent = 'Checking LoRAs…'; $('btn-improve').disabled = true;
+    await refreshLoras();
     const edit = state.mode === 'edit';
     const family = m.base === 'flux2' ? (/dev/i.test(m.name) ? 'FLUX.2 Dev' : 'FLUX.2 Klein (distilled, ~4 steps, no CFG/negative prompt)') : m.base === 'flux' ? 'FLUX.1' : m.base === 'sdxl' ? 'Stable Diffusion XL' : 'Stable Diffusion 1.5';
     const guide = edit
@@ -300,7 +302,8 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
       if (!out.prompt) throw new Error('Grok returned no prompt.');
       lastSuggestion = out;
       $('suggest-prompt').textContent = out.prompt;
-      $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : ''].filter(Boolean).join(' · ');
+      const considered = lorasForModel(m); const undocumented = considered.filter((l) => !l.description && !l.trigger_phrases?.length).length;
+      $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', `Considered ${considered.length} LoRA${considered.length === 1 ? '' : 's'}` + (undocumented ? ` (${undocumented} with no description/trigger words — add them in Invoke's Model Manager for better picks)` : '')].filter(Boolean).join(' · ');
       const chips = $('suggest-loras'); chips.innerHTML = '';
       for (const name of out.enable_loras || []) {
         const l = lorasForModel(m).find((x) => x.name === name); if (!l || l.key in state.activeLoras) continue;
@@ -445,6 +448,15 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if not applic
     const b = e.target.closest('button'); if (!b) return;
     state.mode = b.dataset.mode; LS.set('mode', state.mode); renderMode();
   });
+  // Re-fetch the LoRA list (and main models) so newly installed ones show up without a reload.
+  async function refreshLoras() {
+    try {
+      const r = await api('/api/v2/models/?model_type=lora'); state.loras = r.models || [];
+      for (const k of Object.keys(state.activeLoras)) if (!state.loras.some((l) => l.key === k)) delete state.activeLoras[k];
+      renderLoras();
+    } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && state.token && state.models.length) refreshLoras(); });
   function pickModel(hint) {
     const sel = $('model'); if (!hint) return;
     const h = hint.toLowerCase();

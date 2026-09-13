@@ -940,7 +940,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
   }
 
   // ---------- Gallery ----------
-  const gal = { items: [], selecting: false, selected: new Set() };
+  const gal = { items: [], selecting: false, selected: new Set(), offset: 0, done: false, loading: false, total: null };
   $('btn-gallery').addEventListener('click', openGallery);
   $('btn-gallery-back').addEventListener('click', () => { setSelecting(false); show('screen-app'); });
   $('btn-gallery-select').addEventListener('click', () => setSelecting(!gal.selecting));
@@ -975,6 +975,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
         if (state.resultName === n) { $('result').hidden = true; state.resultBlob = null; state.resultName = ''; }
       }
       gal.items = gal.items.filter((it) => !names.includes(it.image_name));
+      gal.offset = Math.max(0, gal.offset - names.length); // server list shifted up; keep paging aligned
       toast(`Deleted ${names.length} image${names.length > 1 ? 's' : ''}`);
       setSelecting(false);
       if (!gal.items.length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
@@ -999,16 +1000,34 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     prepend ? grid.prepend(tile) : grid.appendChild(tile);
     apiBlob(`/api/v1/images/i/${encodeURIComponent(it.image_name)}/thumbnail`).then((b) => (img.src = URL.createObjectURL(b))).catch(() => {});
   }
+  const GALLERY_PAGE = 30;
+  let galleryObserver = null;
+  async function loadGalleryPage() {
+    if (gal.loading || gal.done) return;
+    gal.loading = true; $('gallery-more').textContent = 'Loading…'; $('gallery-more').hidden = false;
+    try {
+      const j = await api(`/api/v1/images/?image_origin=internal&categories=general&is_intermediate=false&limit=${GALLERY_PAGE}&offset=${gal.offset}`);
+      const items = (j.items || []).filter((it) => !gal.items.some((x) => x.image_name === it.image_name));
+      for (const it of items) addGalleryTile(it, false);
+      gal.offset += (j.items || []).length;
+      gal.total = j.total ?? gal.total;
+      gal.done = (j.items || []).length < GALLERY_PAGE || (gal.total != null && gal.offset >= gal.total);
+      if (!gal.items.length) $('gallery-grid').innerHTML = '<p class="meta">Nothing yet.</p>';
+      $('gallery-more').textContent = gal.done ? (gal.items.length ? `All ${gal.items.length} images` : '') : '';
+      $('gallery-more').hidden = gal.done && !gal.items.length;
+    } catch (e) { $('gallery-more').textContent = e.message; }
+    finally { gal.loading = false; }
+  }
   async function openGallery() {
     show('screen-gallery'); setSelecting(false);
-    const grid = $('gallery-grid'); grid.innerHTML = '<p class="meta">Loading…</p>';
-    try {
-      const j = await api('/api/v1/images/?image_origin=internal&categories=general&is_intermediate=false&limit=50&offset=0');
-      gal.items = j.items || [];
-      grid.innerHTML = '';
-      if (!gal.items.length) grid.innerHTML = '<p class="meta">Nothing yet.</p>';
-      for (const it of gal.items) addGalleryTile(it, false);
-    } catch (e) { grid.innerHTML = `<p class="error">${e.message}</p>`; }
+    gal.items = []; gal.offset = 0; gal.done = false; gal.loading = false; gal.total = null;
+    $('gallery-grid').innerHTML = '';
+    await loadGalleryPage();
+    // Load the next page whenever the sentinel below the grid scrolls into view.
+    if (!galleryObserver) {
+      galleryObserver = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting) && !$('screen-gallery').hidden) loadGalleryPage(); }, { rootMargin: '600px 0px' });
+      galleryObserver.observe($('gallery-more'));
+    }
   }
 
   // ---------- Full-screen viewer ----------
@@ -1049,7 +1068,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     try {
       await api(`/api/v1/images/i/${encodeURIComponent(name)}`, { method: 'DELETE' });
       $('gallery-grid').querySelector(`[data-name="${CSS.escape(name)}"]`)?.remove();
-      gal.items = gal.items.filter((it) => it.image_name !== name);
+      gal.items = gal.items.filter((it) => it.image_name !== name); gal.offset = Math.max(0, gal.offset - 1);
       if (state.resultName === name) { $('result').hidden = true; state.resultBlob = null; state.resultName = ''; }
       closeViewer(); toast('Deleted');
     } catch (e) { toast(e.message); viewerArm(false); }

@@ -118,6 +118,11 @@
           <button data-mode="restyle">🎨 Restyle</button>
         </div>
         <p class="meta" id="mode-hint"></p>
+        <label class="toggle-row" id="keepface-row">
+          <input type="checkbox" id="keepface" checked />
+          <span class="switch"></span>
+          <span class="grow"><b>Keep face &amp; hair</b><br><small class="meta">Adds a likeness lock to every prompt so the face, skin tone, hair color and style match the photo.</small></span>
+        </label>
         <textarea id="prompt" rows="3" placeholder="What should change? e.g. Put him in a navy suit"></textarea>
         <div class="row" id="improve-row" hidden>
           <button class="ghost small" id="btn-improve">✨ Improve with Grok</button>
@@ -210,6 +215,14 @@
           <button class="ghost small danger" id="btn-xai-clear">Remove key</button>
         </div>
         <p class="meta" id="xai-status"></p>
+      </div>
+      <div class="card">
+        <div class="card-title">Upscaler</div>
+        <p class="meta">Model used by the ⬆︎ 2× / 4× buttons. Spandrel models like 4xNomos8kSC are much sharper on photos than the built-in Real-ESRGAN. Install more in Invoke's Model Manager (any Spandrel/ESRGAN-style .pth or .safetensors), then Refresh.</p>
+        <div class="row gap">
+          <select id="upscaler" class="grow"></select>
+          <button class="ghost small" id="btn-upscaler-refresh">Refresh</button>
+        </div>
       </div>
       <p class="meta center-text" id="build-info"></p>
     </main>

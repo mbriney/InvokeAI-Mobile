@@ -8,12 +8,12 @@ Tested against Invoke **6.14** (multi-user auth, `/api/v2/models`, queue API). S
 ## How it works
 
 1. **Sign in to Invoke** with your Invoke email/password. The JWT is stored on the phone and reused; you won't see the login again until it expires.
-2. Each tap on **Generate** uploads the photo and queues a job right away — you can keep editing the prompt and queueing more. A **Queue** card shows what's uploading / waiting / generating / downloading (with Cancel), and each finished image lands in the preview as it arrives; all of them are in the 🕘 history. The prompt is remembered between sessions. Two modes:
+2. Each tap on **Generate** uploads the photo and queues a job right away — you can keep editing the prompt and queueing more. A **Queue** card shows what's uploading / waiting / generating / downloading (with Cancel), and each finished image lands in the preview as it arrives; all of them are in the 🕘 history. The prompt is remembered between sessions. A **Keep face & hair** switch (on by default) appends a likeness clause to every prompt at generation time — exact face, facial structure, skin tone, hair color/style/length — without cluttering the box; it's saved with presets and Grok is told not to duplicate it. Two modes:
    - **Edit photo** (FLUX.2 only) — the photo goes in as a reference image and the prompt is an instruction ("Put him in a navy suit"). Face, pose and scene are preserved. This is the default for FLUX.2 Klein.
    - **Restyle** — classic image-to-image: the photo is re-noised by *strength* and re-drawn to the prompt. Works with every model; the only mode for SD/SDXL/FLUX.1.
 3. **Paste** works too: ⌘V anywhere on the page, or the 📋 buttons on iPhone (Safari asks once to allow paste). With a FLUX.2 model in Edit mode an **Outfit reference** slot appears — add a photo of someone wearing an outfit (choose or paste) and the person in your photo is shown wearing it. Both photos go to Klein as reference images (yours first) — verified to keep face, pose and background and swap the garments; a ready-made instruction is filled in (tap *Write the outfit prompt for me* to reset it), and ✨ Improve with Grok sees both images and describes the actual garments.
 4. The result (and the full-screen viewer) supports **pinch to zoom, drag to pan, double-tap to reset**; mouse wheel zooms on desktop.
-5. **⬆︎ 2×** on the result card upscales it with Real-ESRGAN (queued like a generation; ~7 s for 2×). The viewer in 🕘 has 2× and 4×.
+5. **⬆︎ 2×** on the result card upscales it (queued like a generation). The viewer in 🕘 has 2× and 4×. The model is chosen in ⚙ Settings → Upscaler: any Spandrel upscaler installed on the server (4xNomos8kSC is the default and much sharper on photos), or the built-in Real-ESRGAN.
 6. **Save to Photos** uses the iOS share sheet (choose *Save Image*). If the share sheet isn't available, press-and-hold the image → *Add to Photos*.
 
 Add it to your Home Screen (Share → *Add to Home Screen*) and it runs full-screen like an app.
@@ -90,5 +90,5 @@ manifest.webmanifest, icon-*.png   PWA / home-screen icon
 
 - FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps are dropped to 4 automatically when a FLUX.2 model is selected (CFG is ignored by Klein). FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
 - SD 1.5 models are sent images with a longest edge of 768.
-- The gallery (🕘) lists the server's non-intermediate images newest first, 30 at a time, loading more as you scroll. Tap one for a full-screen view with **Save to Photos**, **⬆︎ 2× / 4× upscale** (Invoke's built-in Real-ESRGAN; the upscaled copy is a new gallery image and the viewer switches to it) and **Delete**; **Select** → tap images → **Delete** → **Confirm** removes several at once. Deletion is permanent on the server (two taps, no pop-ups).
+- The gallery (🕘) lists the server's non-intermediate images newest first, 30 at a time, loading more as you scroll. Tap one for a full-screen view with **Save to Photos**, **⬆︎ 2× / 4× upscale** (the upscaled copy is a new gallery image and the viewer switches to it) and **Delete**; **Select** → tap images → **Delete** → **Confirm** removes several at once. Deletion is permanent on the server (two taps, no pop-ups).
 - The JWT is stored in `localStorage`; use ⎋ to sign out.

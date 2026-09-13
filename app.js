@@ -28,6 +28,7 @@
     loras: [],            // all LoRAs on the server
     activeLoras: {},      // key -> weight
     subModels: { t5_encoder: [], clip_embed: [], vae: [], qwen3_encoder: [] },
+    upscalers: [],        // spandrel image-to-image models on the server
     resultBlob: null,
     resultName: '',
   };
@@ -130,7 +131,7 @@
   let currentSavedId = null;
   function snapshot() {
     return {
-      prompt: $('prompt').value, negative: $('negative').value, mode: state.mode,
+      prompt: $('prompt').value, negative: $('negative').value, mode: state.mode, keepFace: keepFace(),
       strength: Number($('strength').value), steps: Number($('steps').value), cfg: Number($('cfg').value),
       modelKey: $('model').value || null, loras: Object.assign({}, state.activeLoras),
     };
@@ -138,6 +139,7 @@
   function applySaved(p) {
     $('prompt').value = p.prompt || ''; LS.set('last_prompt', $('prompt').value);
     $('negative').value = p.negative || '';
+    if (typeof p.keepFace === 'boolean') { $('keepface').checked = p.keepFace; LS.set('keep_face', p.keepFace ? '1' : '0'); }
     $('strength').value = p.strength ?? 0.65; $('strength-val').textContent = $('strength').value;
     $('steps').value = p.steps ?? 4; $('cfg').value = p.cfg ?? 7;
     if (p.modelKey && state.models.some((m) => m.key === p.modelKey)) { $('model').value = p.modelKey; LS.set('last_model_key', p.modelKey); }
@@ -149,7 +151,7 @@
     renderMode(); renderLoras(); updateGenerate();
   }
   // Does what's on screen still match the loaded preset?
-  const norm = (p) => JSON.stringify({ prompt: (p.prompt || '').trim(), negative: (p.negative || '').trim(), mode: p.mode, strength: +p.strength, steps: +p.steps, cfg: +p.cfg, modelKey: p.modelKey || null, loras: Object.fromEntries(Object.entries(p.loras || {}).sort()) });
+  const norm = (p) => JSON.stringify({ prompt: (p.prompt || '').trim(), negative: (p.negative || '').trim(), mode: p.mode, keepFace: p.keepFace !== false, strength: +p.strength, steps: +p.steps, cfg: +p.cfg, modelKey: p.modelKey || null, loras: Object.fromEntries(Object.entries(p.loras || {}).sort()) });
   function savedIsEdited() {
     const cur = savedList().find((p) => p.id === currentSavedId);
     return cur ? norm(cur) !== norm(snapshot()) : false;
@@ -203,6 +205,10 @@
   const xai = { key: LS.get('xai_key') || '', model: LS.get('xai_model') || '', vision: LS.get('xai_vision') !== '0' };
   $('btn-settings').addEventListener('click', () => { show('screen-settings'); $('build-info').textContent = CFG.build ? `Build ${CFG.build}` : ''; $('xai-key').value = xai.key; $('xai-vision').checked = xai.vision; $('xai-status').textContent = ''; if (xai.key) loadXaiModels(); });
   $('btn-settings-back').addEventListener('click', () => { show('screen-app'); renderImproveRow(); });
+  $('upscaler').addEventListener('change', () => { LS.set('upscaler', $('upscaler').value); toast('Upscaler set'); });
+  $('btn-upscaler-refresh').addEventListener('click', async () => {
+    try { const r = await api('/api/v2/models/?model_type=spandrel_image_to_image'); state.upscalers = r.models || []; renderUpscalerSelect(); toast(`${state.upscalers.length} upscaler model${state.upscalers.length === 1 ? '' : 's'} found`); } catch (e) { toast(e.message); }
+  });
   $('xai-key').addEventListener('change', () => loadXaiModels($('xai-key').value.trim()));
   $('btn-xai-save').addEventListener('click', () => {
     xai.key = $('xai-key').value.trim(); xai.model = $('xai-model').value; xai.vision = $('xai-vision').checked;
@@ -301,6 +307,7 @@ ${guide}
 LoRAs on the server for this model (ENABLED ones are currently active; include trigger words naturally in the prompt for every LoRA you recommend; recommend the LoRAs that fit the idea, and leave out the ones that don't — the user can apply your full LoRA set with one tap):
 ${loraContext(m)}
 ${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached in the order the model will see them: IMAGE 1 is the person to keep; IMAGE 2 shows an outfit on someone else. Refer to them literally as "image 1" and "image 2". Say to output a single photo of the person from image 1 wearing the outfit from image 2; describe the garments you actually see in image 2 (type, color, fabric, fit, details); keep face, hair, pose, framing and background from image 1; and do not show the person or background from image 2.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
+${keepFace() && state.file ? 'LIKENESS LOCK is ON: the app appends a fixed clause preserving the person\'s exact face, skin tone, hair color and hairstyle after your prompt — so do not spend words on that; write only the change, and never describe or alter the face or hair unless the user\'s idea is specifically about them.' : ''}
 Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "loras": [{"name": exact LoRA name from the list, "weight": number, "why": very short reason}], "notes": one short sentence for the user}.
 For "loras": list every LoRA from the list that should be ON for this idea, including ones that are currently enabled if they still fit (omit any that don't). For each, pick "weight" from the recommended-usage/strength guidance in its description when present; otherwise use 0.75 for style/concept LoRAs and 0.5–0.6 for subtle detail/realism LoRAs. Weights are 0–1.5.`;
     const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
@@ -356,6 +363,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     setOutfit(null);
     $('prompt').value = ''; LS.del('last_prompt');
     $('negative').value = ''; $('seed').value = '';
+    $('keepface').checked = true; LS.set('keep_face', '1');
     $('strength').value = 0.65; $('strength-val').textContent = '0.65';
     $('steps').value = 30; $('cfg').value = 7; applyModelDefaults();
     state.activeLoras = {}; LS.del('active_loras'); renderLoras();
@@ -367,6 +375,22 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     $('advanced').hidden = true;
     updateGenerate(); window.scrollTo({ top: 0, behavior: 'smooth' }); toast('Reset');
   });
+
+  // ---------- Keep face & hair (likeness lock) ----------
+  // On by default. Appended to the prompt at generation time (not shown in the box) and explained to Grok.
+  const IDENTITY_EDIT = 'Preserve this exact person\'s identity: the same face and facial structure, eyes, eye color, nose, mouth, skin tone and complexion, and the same hair color, hairstyle, length and texture as in the photo — an identical likeness, not a lookalike. Do not alter age, weight or facial features.';
+  const IDENTITY_RESTYLE = 'The person must remain recognizably the same individual: identical face and facial structure, eye color, skin tone, and the same hair color, style and length as the source photo.';
+  const identityClause = () => (state.mode === 'edit' ? IDENTITY_EDIT : IDENTITY_RESTYLE);
+  const keepFace = () => $('keepface').checked;
+  $('keepface').checked = LS.get('keep_face') !== '0';
+  $('keepface').addEventListener('change', () => { LS.set('keep_face', keepFace() ? '1' : '0'); renderSaved(); toast(keepFace() ? 'Likeness lock on' : 'Likeness lock off'); });
+  // Final prompt sent to the model: the user's text plus the likeness clause when the toggle is on.
+  function finalPrompt(text) {
+    const t = text.trim();
+    if (!keepFace() || !state.file) return t;
+    if (/identical likeness|same individual/i.test(t)) return t; // already there (e.g. from Grok)
+    return `${t}${/[.!?]$/.test(t) ? '' : '.'} ${identityClause()}`;
+  }
 
   // ---------- Prompt ----------
   $('prompt').addEventListener('input', () => { LS.set('last_prompt', $('prompt').value); updateGenerate(); });
@@ -394,6 +418,8 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
       try { const r = await api(`/api/v2/models/?model_type=${t}`); state.subModels[t] = r.models || []; } catch {}
     }
     try { const r = await api('/api/v2/models/?model_type=lora'); state.loras = r.models || []; } catch {}
+    try { const r = await api('/api/v2/models/?model_type=spandrel_image_to_image'); state.upscalers = r.models || []; } catch {}
+    renderUpscalerSelect();
     const saved = JSON.parse(LS.get('active_loras') || '{}');
     for (const l of state.loras) if (l.key in saved) state.activeLoras[l.key] = saved[l.key];
     applyModelDefaults();
@@ -590,7 +616,8 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
   async function generate() {
     if (!state.file || !$('prompt').value.trim()) return;
     const model = currentModel();
-    const prompt = $('prompt').value.trim();
+    const shownPrompt = $('prompt').value.trim();
+    const prompt = finalPrompt(shownPrompt);
     const negative = $('negative').value.trim();
     const strength = Number($('strength').value);
     const steps = Number($('steps').value) || 30;
@@ -599,7 +626,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     const file = state.file;
     const outfit = (model.base === 'flux2' && state.mode === 'edit') ? state.outfit : null;
 
-    const job = { id: uid('j'), itemId: null, prompt, model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false,
+    const job = { id: uid('j'), itemId: null, prompt: shownPrompt + (keepFace() ? ' 🔒' : ''), model: model.name, status: 'uploading', t0: Date.now(), error: null, imageName: null, outputId: null, cancelled: false,
       loras: lorasForModel(model).filter((l) => l.key in state.activeLoras).map((l) => l.name) };
     state.jobs.push(job); $('app-error').textContent = ''; renderQueue();
 
@@ -641,12 +668,30 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     } catch (err) { job.status = 'failed'; job.error = err.message; renderQueue(); }
     return job;
   }
-  // Real-ESRGAN upscale of an image already on the server. Result lands in the gallery like any generation.
+  // Upscale an image already on the server. Uses the chosen Spandrel model (e.g. 4xNomos8kSC) when one is
+  // installed — far better on photos than Real-ESRGAN — and falls back to the built-in Real-ESRGAN otherwise.
+  // Result lands in the gallery like any generation.
+  function chosenUpscaler() {
+    const key = LS.get('upscaler') || '';
+    if (key === 'esrgan') return null;
+    return state.upscalers.find((m) => m.key === key)
+      || state.upscalers.find((m) => /nomos/i.test(m.name)) || state.upscalers.find((m) => /ultrasharp/i.test(m.name)) || state.upscalers[0] || null;
+  }
+  function renderUpscalerSelect() {
+    const sel = $('upscaler'); if (!sel) return;
+    sel.innerHTML = '';
+    for (const m of state.upscalers) { const o = document.createElement('option'); o.value = m.key; o.textContent = m.name; sel.appendChild(o); }
+    const o = document.createElement('option'); o.value = 'esrgan'; o.textContent = 'Real-ESRGAN (built-in, softer)'; sel.appendChild(o);
+    const cur = chosenUpscaler(); sel.value = cur ? cur.key : 'esrgan';
+  }
   function upscale(imageName, factor = 2, onDone) {
-    const id = uid('up'); const nid = `${id}_esr`;
-    const graph = { id, nodes: { [nid]: { id: nid, type: 'esrgan', image: { image_name: imageName }, model_name: factor === 4 ? 'RealESRGAN_x4plus.pth' : 'RealESRGAN_x2plus.pth', tile_size: 400, is_intermediate: false, use_cache: false } }, edges: [] };
-    toast(`Upscaling ${factor}×…`);
-    return enqueueGraph({ graph, outputId: nid, label: `Upscale ${factor}×`, detail: `Real-ESRGAN x${factor}`, onDone });
+    const id = uid('up'); const nid = `${id}_up`; const m = chosenUpscaler();
+    const node = m
+      ? { id: nid, type: 'spandrel_image_to_image_autoscale', image: { image_name: imageName }, image_to_image_model: idField(m), scale: factor, tile_size: 512, fit_to_multiple_of_8: false, is_intermediate: false, use_cache: false }
+      : { id: nid, type: 'esrgan', image: { image_name: imageName }, model_name: factor === 4 ? 'RealESRGAN_x4plus.pth' : 'RealESRGAN_x2plus.pth', tile_size: 400, is_intermediate: false, use_cache: false };
+    const graph = { id, nodes: { [nid]: node }, edges: [] };
+    toast(`Upscaling ${factor}× with ${m ? m.name : 'Real-ESRGAN'}…`);
+    return enqueueGraph({ graph, outputId: nid, label: `Upscale ${factor}×`, detail: m ? m.name : `Real-ESRGAN x${factor}`, onDone });
   }
 
   async function cancelJob(job) {

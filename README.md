@@ -88,7 +88,7 @@ manifest.webmanifest, icon-*.png   PWA / home-screen icon
 
 ## Notes & limits
 
-- FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps are dropped to 4 automatically when a FLUX.2 model is selected (CFG is ignored by Klein). FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
+- FLUX.2 Klein uses the first Qwen3 encoder and the FLUX.2 VAE found on the server; steps default to 8 when a FLUX.2 model is selected (CFG is ignored by Klein); in testing, identity at 4/8/12 steps was near-identical with no LoRA on — LoRAs above ~0.6 are what change faces, and the LoRA card warns when the likeness lock is on and one is set that high. FLUX.1 uses the first T5 / CLIP / FLUX VAE; Schnell is capped at 8 steps.
 - SD 1.5 models are sent images with a longest edge of 768.
 - The gallery (🕘) lists the server's non-intermediate images newest first, 30 at a time, loading more as you scroll. Tap one for a full-screen view with **Save to Photos**, **⬆︎ 2× / 4× upscale** (the upscaled copy is a new gallery image and the viewer switches to it) and **Delete**; **Select** → tap images → **Delete** → **Confirm** removes several at once. Deletion is permanent on the server (two taps, no pop-ups).
 - The JWT is stored in `localStorage`; use ⎋ to sign out.

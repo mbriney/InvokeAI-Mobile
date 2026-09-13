@@ -141,7 +141,7 @@
     $('negative').value = p.negative || '';
     if (typeof p.keepFace === 'boolean') { $('keepface').checked = p.keepFace; LS.set('keep_face', p.keepFace ? '1' : '0'); }
     $('strength').value = p.strength ?? 0.65; $('strength-val').textContent = $('strength').value;
-    $('steps').value = p.steps ?? 4; $('cfg').value = p.cfg ?? 7;
+    $('steps').value = p.steps ?? 8; $('cfg').value = p.cfg ?? 7;
     if (p.modelKey && state.models.some((m) => m.key === p.modelKey)) { $('model').value = p.modelKey; LS.set('last_model_key', p.modelKey); }
     state.activeLoras = {}; for (const [k, w] of Object.entries(p.loras || {})) if (state.loras.some((l) => l.key === k)) state.activeLoras[k] = w;
     LS.set('active_loras', JSON.stringify(state.activeLoras));
@@ -366,6 +366,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     $('keepface').checked = true; LS.set('keep_face', '1');
     $('strength').value = 0.65; $('strength-val').textContent = '0.65';
     $('steps').value = 30; $('cfg').value = 7; applyModelDefaults();
+    if (currentModel()?.base === 'flux2') $('steps').value = 8;
     state.activeLoras = {}; LS.del('active_loras'); renderLoras();
     if (!$('mode').hidden) { state.mode = 'edit'; LS.set('mode', 'edit'); renderMode(); }
     currentSavedId = null; renderSaved();
@@ -383,7 +384,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
   const identityClause = () => (state.mode === 'edit' ? IDENTITY_EDIT : IDENTITY_RESTYLE);
   const keepFace = () => $('keepface').checked;
   $('keepface').checked = LS.get('keep_face') !== '0';
-  $('keepface').addEventListener('change', () => { LS.set('keep_face', keepFace() ? '1' : '0'); renderSaved(); toast(keepFace() ? 'Likeness lock on' : 'Likeness lock off'); });
+  $('keepface').addEventListener('change', () => { LS.set('keep_face', keepFace() ? '1' : '0'); renderSaved(); renderLoras(); toast(keepFace() ? 'Likeness lock on' : 'Likeness lock off'); });
   // Final prompt sent to the model: the user's text plus the likeness clause when the toggle is on.
   function finalPrompt(text) {
     const t = text.trim();
@@ -427,7 +428,7 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
   // Distilled FLUX.2 Klein wants few steps and ignores CFG; nudge the fields when such a model is picked.
   function applyModelDefaults() {
     const m = currentModel(); if (!m) return;
-    if (m.base === 'flux2' && Number($('steps').value) > 12) $('steps').value = 4;
+    if (m.base === 'flux2' && Number($('steps').value) > 12) $('steps').value = 8;
     $('mode').hidden = m.base !== 'flux2';        // only FLUX.2 can do reference-image editing
     if (m.base !== 'flux2') state.mode = 'restyle';
     else state.mode = LS.get('mode') || 'edit';
@@ -462,6 +463,9 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
     if (!m) { card.hidden = true; return; }
     const list = lorasForModel(m);
     card.hidden = !list.length; wrap.innerHTML = '';
+    const strong = list.filter((l) => l.key in state.activeLoras && state.activeLoras[l.key] > 0.6);
+    const warn = $('lora-warn');
+    if (warn) { warn.hidden = !(strong.length && $('keepface').checked); warn.textContent = strong.length ? `Likeness lock is on, but ${strong.map((l) => l.name).join(', ')} ${strong.length > 1 ? 'are' : 'is'} above 0.6 — LoRAs at that strength usually change the face. Try ≤ 0.5.` : ''; }
     for (const l of list) {
       const on = l.key in state.activeLoras;
       const row = document.createElement('div'); row.className = 'lora' + (on ? ' on' : '');

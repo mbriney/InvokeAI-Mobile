@@ -151,7 +151,7 @@
             <input type="range" id="strength" min="0.1" max="1" step="0.05" value="0.65" />
           </label>
           <div class="grid2">
-            <label class="field"><span>Steps</span><input type="number" id="steps" min="1" max="100" value="30" /></label>
+            <label class="field"><span>Steps</span><input type="number" id="steps" min="1" max="100" value="8" /></label>
             <label class="field"><span>CFG / Guidance</span><input type="number" id="cfg" min="0" max="30" step="0.5" value="7" /></label>
           </div>
           <label class="field">
@@ -168,6 +168,7 @@
       <!-- LoRAs -->
       <div class="card" id="lora-card" hidden>
         <div class="card-title">LoRAs</div>
+        <p class="meta" id="lora-warn" hidden></p>
         <div id="loras"></div>
       </div>
 

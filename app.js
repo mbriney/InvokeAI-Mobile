@@ -277,6 +277,59 @@
   }
   function renderImproveRow() { $('improve-row').hidden = !xai.key; }
 
+
+  // ---------- LoRA face-risk metadata (from Invoke Model Manager descriptions) ----------
+  // Descriptions may include: FACE_RISK: high|medium|low and LIKENESS_LOCK_MAX_WEIGHT: 0.xx
+  function parseLoraFaceMeta(l) {
+    const desc = String(l?.description || '');
+    const riskM = desc.match(/FACE_RISK:\s*(high|medium|low)/i);
+    const maxM = desc.match(/LIKENESS_LOCK_MAX_WEIGHT:\s*(-?\d+(?:\.\d+)?)/i);
+    let risk = riskM ? riskM[1].toLowerCase() : 'unknown';
+    let maxW = maxM ? Number(maxM[1]) : null;
+    if (maxW == null || Number.isNaN(maxW)) {
+      maxW = risk === 'high' ? 0.35 : risk === 'medium' ? 0.45 : risk === 'low' ? 0.55 : 0.5;
+    }
+    return { risk, maxWeight: maxW };
+  }
+  function likenessLoraRules() {
+    if (!keepFace()) return null;
+    return {
+      // Soft defaults when descriptions lack structured lines
+      defaultStyleWeight: 0.45,
+      defaultSubtleWeight: 0.4,
+      skipHighUnlessExplicit: true,
+    };
+  }
+  // Enforce caps/skips on Grok (or Fix-it) LoRA suggestions. Mutates and returns { kept, skipped, capped }.
+  function sanitizeLoraSuggestions(items, { roughIdea = '' } = {}) {
+    const lock = keepFace();
+    const idea = String(roughIdea || '').toLowerCase();
+    const explicitFaceConcept = /\b(kiss|kissing|facial|cum on face|deepthroat|mouth|lips|expression)\b/.test(idea);
+    const kept = [];
+    const skipped = [];
+    const capped = [];
+    for (const x of items || []) {
+      if (!x?.lora) continue;
+      const meta = parseLoraFaceMeta(x.lora);
+      let weight = Number(x.weight);
+      if (!Number.isFinite(weight)) weight = lock ? 0.45 : 0.75;
+      weight = Math.max(-1, Math.min(2, weight));
+      if (lock) {
+        if (meta.risk === 'high' && !explicitFaceConcept) {
+          skipped.push({ name: x.lora.name, reason: `FACE_RISK=high (skipped under likeness lock)` });
+          continue;
+        }
+        const cap = meta.maxWeight;
+        if (weight > cap) {
+          capped.push({ name: x.lora.name, from: weight, to: cap });
+          weight = cap;
+        }
+      }
+      kept.push({ ...x, weight, faceRisk: meta.risk, maxWeight: meta.maxWeight });
+    }
+    return { kept, skipped, capped };
+  }
+
   // ---------- Improve prompt with Grok ----------
   let lastSuggestion = null;
   $('btn-improve').addEventListener('click', improvePrompt);
@@ -314,7 +367,13 @@
   }
   function loraContext(m) {
     const all = lorasForModel(m);
-    const line = (l) => `- "${l.name}"${l.key in state.activeLoras ? ` (ENABLED, weight ${state.activeLoras[l.key]})` : ' (available, off)'}${l.description ? ` — ${l.description}` : ''}${l.trigger_phrases?.length ? ` — trigger words: ${l.trigger_phrases.join(', ')}` : ''}`;
+    const line = (l) => {
+      const meta = parseLoraFaceMeta(l);
+      const en = l.key in state.activeLoras ? ` (ENABLED, weight ${state.activeLoras[l.key]})` : ' (available, off)';
+      const trig = l.trigger_phrases?.length ? ` — trigger words: ${l.trigger_phrases.join(', ')}` : '';
+      const face = ` — FACE_RISK: ${meta.risk}; LIKENESS_LOCK_MAX_WEIGHT: ${meta.maxWeight}`;
+      return `- "${l.name}"${en}${face}${l.description ? ` — ${l.description}` : ''}${trig}`;
+    };
     return all.length ? all.map(line).join('\n') : '(none installed for this model)';
   }
   async function improvePrompt() {
@@ -336,9 +395,9 @@ ${guide}
 LoRAs on the server for this model (ENABLED ones are currently active; include trigger words naturally in the prompt for every LoRA you recommend; recommend the LoRAs that fit the idea, and leave out the ones that don't — the user can apply your full LoRA set with one tap):
 ${loraContext(m)}
 ${xai.vision && state.file ? (state.outfit && edit && m.base === 'flux2' ? 'Two photos are attached in the order the model will see them: IMAGE 1 is the person to keep; IMAGE 2 shows an outfit on someone else. Refer to them literally as "image 1" and "image 2". Say to output a single photo of the person from image 1 wearing the outfit from image 2; describe the garments you actually see in image 2 (type, color, fabric, fit, details); keep face, hair, pose, framing and background from image 1; and do not show the person or background from image 2.' : 'The user\'s photo is attached — use what you see (subject, clothing, setting, lighting) so the prompt is specific to it.') : ''}
-${keepFace() && state.file ? 'LIKENESS LOCK is ON: the app appends a fixed clause preserving the person\'s exact face, skin tone, hair color and hairstyle after your prompt — so do not spend words on that; write only the change, and never describe or alter the face or hair unless the user\'s idea is specifically about them.' : ''}
+${keepFace() && state.file ? 'LIKENESS LOCK is ON: the app appends a fixed clause preserving the person\'s exact face, skin tone, hair color and hairstyle after your prompt — so do not spend words on that; write only the change, and never describe or alter the face or hair unless the user\'s idea is specifically about them. LoRA rules while lock is on: prefer fewer LoRAs (prompt-only is OK); do NOT recommend FACE_RISK=high LoRAs unless the user\'s idea explicitly requires that concept (kiss/facial/oral/etc.); never exceed each LoRA\'s LIKENESS_LOCK_MAX_WEIGHT; default style/concept weights to ~0.4–0.45 (not 0.75). Identity beats style.' : ''}
 Reply with JSON only: {"prompt": string, "negative": string (empty if not applicable), "loras": [{"name": exact LoRA name from the list, "weight": number, "why": very short reason}], "notes": one short sentence for the user}.
-For "loras": list every LoRA from the list that should be ON for this idea, including ones that are currently enabled if they still fit (omit any that don't). For each, pick "weight" from the recommended-usage/strength guidance in its description when present; otherwise use 0.75 for style/concept LoRAs and 0.5–0.6 for subtle detail/realism LoRAs. Weights are 0–1.5.`;
+For "loras": list every LoRA from the list that should be ON for this idea, including ones that are currently enabled if they still fit (omit any that don't). For each, pick "weight" from LIKENESS_LOCK_MAX_WEIGHT when likeness lock is on, else from the recommended-usage/strength guidance in its description when present; otherwise use ${keepFace() ? '0.45' : '0.75'} for style/concept LoRAs and ${keepFace() ? '0.4' : '0.5–0.6'} for subtle detail/realism LoRAs. Weights are 0–1.5.`;
     const userContent = [{ type: 'text', text: `Rough idea: ${rough}` }];
     $('improve-status').textContent = 'Asking Grok…'; $('btn-improve').disabled = true;
     try {
@@ -354,15 +413,22 @@ For "loras": list every LoRA from the list that should be ON for this idea, incl
       if (!out.prompt) throw new Error('Grok returned no prompt.');
       // Normalise LoRA suggestions: accept {name, weight, why} objects or bare names (older replies).
       const fits = lorasForModel(m);
-      out.loras = (Array.isArray(out.loras) ? out.loras : Array.isArray(out.enable_loras) ? out.enable_loras : [])
+      const rawLoras = (Array.isArray(out.loras) ? out.loras : Array.isArray(out.enable_loras) ? out.enable_loras : [])
         .map((x) => (typeof x === 'string' ? { name: x } : x))
         .map((x) => ({ ...x, lora: fits.find((l) => l.name === x.name) || fits.find((l) => l.name.toLowerCase() === String(x.name).toLowerCase()) }))
         .filter((x) => x.lora)
-        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || 0.75)) }));
+        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || (keepFace() ? 0.45 : 0.75))) }));
+      const sanitized = sanitizeLoraSuggestions(rawLoras, { roughIdea: rough });
+      out.loras = sanitized.kept;
+      out._loraSanitized = sanitized;
       lastSuggestion = out;
       $('suggest-prompt').textContent = out.prompt;
       const considered = lorasForModel(m); const undocumented = considered.filter((l) => !l.description && !l.trigger_phrases?.length).length;
-      $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', `Considered ${considered.length} LoRA${considered.length === 1 ? '' : 's'}` + (undocumented ? ` (${undocumented} with no description/trigger words — add them in Invoke's Model Manager for better picks)` : '')].filter(Boolean).join(' · ');
+      const sanNotes = [
+        sanitized.skipped.length ? `Skipped ${sanitized.skipped.map((s) => s.name).join(', ')} under likeness lock` : '',
+        sanitized.capped.length ? `Capped ${sanitized.capped.map((c) => `${c.name} ${c.from.toFixed(2)}→${c.to.toFixed(2)}`).join(', ')}` : '',
+      ].filter(Boolean).join(' · ');
+      $('suggest-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', sanNotes, `Considered ${considered.length} LoRA${considered.length === 1 ? '' : 's'}` + (undocumented ? ` (${undocumented} with no description/trigger words — add them in Invoke's Model Manager for better picks)` : '')].filter(Boolean).join(' · ');
       const chips = $('suggest-loras'); chips.innerHTML = '';
       for (const x of out.loras) {
         const b = document.createElement('button'); b.className = 'chip'; b.title = x.why || '';
@@ -465,7 +531,7 @@ PROMPT THAT WAS USED (verbatim, including any likeness clause the app appended):
 LoRAs that were on for that run: ${usedLoras}.
 LoRAs available for this model (ENABLED = on now):
 ${loraContext(m)}
-${keepFace() ? 'LIKENESS LOCK is ON: the app will append its fixed face/hair-preservation clause again — do not repeat it.' : ''}
+${keepFace() ? 'LIKENESS LOCK is ON: the app will append its fixed face/hair-preservation clause again — do not repeat it. Prefer dropping or capping FACE_RISK=high LoRAs; never exceed LIKENESS_LOCK_MAX_WEIGHT; if the complaint is face/hair drift, remove face-risk LoRAs first.' : ''}
 Diagnose from the user's complaint and the images: if the model ignored an instruction, make it more explicit and concrete (colors, materials, placement) and put it earlier; if it over-did something, add an explicit constraint; if a LoRA likely caused the problem (e.g. face drift, unwanted style), lower its weight or drop it. Keep the style rules of the model (${edit ? 'plain-English instruction, 1–3 sentences, under 90 words' : 'descriptive prompt'}).
 Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "loras": [{"name": exact name, "weight": number, "why": short}] (the complete set that should be ON next run), "steps": integer or null (only if changing it would help), "notes": one short sentence explaining what you changed}.`;
       const content = [{ type: 'text', text: `What went wrong: ${feedback}` }];
@@ -480,13 +546,19 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
       // strip the likeness clause if Grok echoed it — the app re-appends it
       out.prompt = out.prompt.replace(IDENTITY_EDIT, '').replace(IDENTITY_RESTYLE, '').trim();
       const fits = lorasForModel(m);
-      out.loras = (Array.isArray(out.loras) ? out.loras : []).map((x) => (typeof x === 'string' ? { name: x } : x))
+      const rawFixLoras = (Array.isArray(out.loras) ? out.loras : []).map((x) => (typeof x === 'string' ? { name: x } : x))
         .map((x) => ({ ...x, lora: fits.find((l) => l.name === x.name) || fits.find((l) => l.name.toLowerCase() === String(x.name).toLowerCase()) })).filter((x) => x.lora)
-        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || 0.75)) }));
+        .map((x) => ({ ...x, weight: Math.max(-1, Math.min(2, Number(x.weight) || (keepFace() ? 0.45 : 0.75))) }));
+      const fixSan = sanitizeLoraSuggestions(rawFixLoras, { roughIdea: feedback });
+      out.loras = fixSan.kept;
       out.steps = Number.isInteger(out.steps) && out.steps > 0 ? out.steps : null;
       lastFix = out;
       $('fix-prompt').textContent = out.prompt;
-      $('fix-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', out.steps ? `Steps → ${out.steps}` : '', out.loras.length ? `LoRAs → ${out.loras.map((x) => `${x.lora.name} @ ${x.weight.toFixed(2)}`).join(', ')}` : 'LoRAs → none'].filter(Boolean).join(' · ');
+      const fixSanNotes = [
+        fixSan.skipped.length ? `Skipped ${fixSan.skipped.map((s) => s.name).join(', ')}` : '',
+        fixSan.capped.length ? `Capped ${fixSan.capped.map((c) => `${c.name}→${c.to.toFixed(2)}`).join(', ')}` : '',
+      ].filter(Boolean).join(' · ');
+      $('fix-notes').textContent = [out.notes, out.negative ? `Negative: ${out.negative}` : '', out.steps ? `Steps → ${out.steps}` : '', out.loras.length ? `LoRAs → ${out.loras.map((x) => `${x.lora.name} @ ${x.weight.toFixed(2)}`).join(', ')}` : 'LoRAs → none', fixSanNotes].filter(Boolean).join(' · ');
       const chips = $('fix-loras'); chips.innerHTML = '';
       for (const x of out.loras) { const b = document.createElement('span'); b.className = 'chip active'; b.textContent = `${x.lora.name} @ ${x.weight.toFixed(2)}`; b.title = x.why || ''; chips.appendChild(b); }
       $('fix-suggest').hidden = false; $('fix-status').textContent = '';
@@ -564,9 +636,20 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
     if (!m) { card.hidden = true; return; }
     const list = lorasForModel(m);
     card.hidden = !list.length; wrap.innerHTML = '';
-    const strong = list.filter((l) => l.key in state.activeLoras && state.activeLoras[l.key] > 0.6);
+    const strong = list.filter((l) => {
+      if (!(l.key in state.activeLoras)) return false;
+      const meta = parseLoraFaceMeta(l);
+      const cap = keepFace() ? meta.maxWeight : 0.6;
+      return state.activeLoras[l.key] > cap;
+    });
     const warn = $('lora-warn');
-    if (warn) { warn.hidden = !(strong.length && $('keepface').checked); warn.textContent = strong.length ? `Likeness lock is on, but ${strong.map((l) => l.name).join(', ')} ${strong.length > 1 ? 'are' : 'is'} above 0.6 — LoRAs at that strength usually change the face. Try ≤ 0.5.` : ''; }
+    if (warn) {
+      warn.hidden = !(strong.length && $('keepface').checked);
+      warn.textContent = strong.length ? `Likeness lock is on, but ${strong.map((l) => {
+        const meta = parseLoraFaceMeta(l);
+        return `${l.name} @ ${state.activeLoras[l.key].toFixed(2)} (max ${meta.maxWeight})`;
+      }).join(', ')} — lower the weight or turn the LoRA off to keep face/hair.` : '';
+    }
     for (const l of list) {
       const on = l.key in state.activeLoras;
       const row = document.createElement('div'); row.className = 'lora' + (on ? ' on' : '');

@@ -75,6 +75,8 @@ The key lives only in that browser's `localStorage` and is sent only to `api.x.a
 
 Every LoRA installed on the server that fits the selected model is listed under **LoRAs** — same base, and for FLUX.2 the same variant (a Klein 9B or Dev LoRA is hidden when Klein 4B is selected, because it fails inside the denoiser with a tensor-shape error; a LoRA with no recorded variant is shown with a warning) with an on/off toggle and a weight slider (−1 … 2, default 0.75). Active LoRAs are spliced into the graph with the family's `*_lora_collection_loader` node (Klein, FLUX.2 Dev, FLUX.1, SDXL, SD 1.5). Selections are remembered on the phone.
 
+The **Model** menu sits on the main screen (not under Advanced) so you can switch main checkpoints like Klein 4B ↔ unStable Revolution without digging.
+
 When **Keep face & hair** is on, Improve/Fix with Grok reads `FACE_RISK` and `LIKENESS_LOCK_MAX_WEIGHT` from each LoRA's Invoke description (set in Model Manager). High-risk LoRAs are skipped unless the idea clearly needs them; suggested weights are capped to the likeness max. The app also enforces those caps client-side so a model reply cannot apply face-breaking strengths with one tap.
 
 

@@ -583,7 +583,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
     }
     if (!state.models.length) throw new Error('No SD/SDXL/FLUX main models found on the server.');
     pickModel(LS.get('last_model_key') || CFG.defaultModel || '');
-    sel.addEventListener('change', () => { LS.set('last_model_key', sel.value); applyModelDefaults(); });
+    sel.addEventListener('change', () => { LS.set('last_model_key', sel.value); applyModelDefaults(); const m = currentModel(); if (m) toast(m.name); });
     // companion models for FLUX / FLUX.2
     const need = new Set();
     if (state.models.some((m) => m.base === 'flux')) ['t5_encoder', 'clip_embed', 'vae'].forEach((t) => need.add(t));
@@ -692,7 +692,7 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
     const b = e.target.closest('button'); if (!b) return;
     state.mode = b.dataset.mode; LS.set('mode', state.mode); renderMode();
   });
-  // Re-fetch the LoRA list (and main models) so newly installed ones show up without a reload.
+  // Re-fetch LoRAs and main models so newly installed ones show up without a full reload.
   async function refreshLoras() {
     try {
       const r = await api('/api/v2/models/?model_type=lora'); state.loras = r.models || [];
@@ -700,7 +700,26 @@ Reply with JSON only: {"prompt": string, "negative": string (empty if n/a), "lor
       renderLoras();
     } catch {}
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && state.token && state.models.length) refreshLoras(); });
+  async function refreshMainModels() {
+    try {
+      const j = await api('/api/v2/models/?model_type=main');
+      const next = (j.models || []).filter((m) => ['sd-1', 'sd-2', 'sdxl', 'flux', 'flux2'].includes(m.base));
+      if (!next.length) return;
+      const prev = $('model').value;
+      state.models = next;
+      const sel = $('model'); sel.innerHTML = '';
+      for (const m of state.models) {
+        const o = document.createElement('option'); o.value = m.key; o.textContent = m.name;
+        sel.appendChild(o);
+      }
+      if (prev && state.models.some((m) => m.key === prev)) sel.value = prev;
+      else pickModel(LS.get('last_model_key') || CFG.defaultModel || '');
+      applyModelDefaults();
+    } catch {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.token && state.models.length) { refreshLoras(); refreshMainModels(); }
+  });
   function pickModel(hint) {
     const sel = $('model'); if (!hint) return;
     const h = hint.toLowerCase();

@@ -123,6 +123,10 @@
           <span class="switch"></span>
           <span class="grow"><b>Keep face &amp; hair</b><br><small class="meta">Adds a likeness lock to every prompt so the face, skin tone, hair color and style match the photo.</small></span>
         </label>
+        <label class="field" id="model-field">
+          <span>Model</span>
+          <select id="model"></select>
+        </label>
         <textarea id="prompt" rows="3" placeholder="What should change? e.g. Put him in a navy suit"></textarea>
         <div class="row" id="improve-row" hidden>
           <button class="ghost small" id="btn-improve">✨ Improve with Grok</button>
@@ -154,10 +158,6 @@
             <label class="field"><span>Steps</span><input type="number" id="steps" min="1" max="100" value="8" /></label>
             <label class="field"><span>CFG / Guidance</span><input type="number" id="cfg" min="0" max="30" step="0.5" value="7" /></label>
           </div>
-          <label class="field">
-            <span>Model</span>
-            <select id="model"></select>
-          </label>
           <label class="field">
             <span>Seed <small>(blank = random)</small></span>
             <input type="number" id="seed" placeholder="random" />
